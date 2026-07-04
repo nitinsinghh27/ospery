@@ -1,0 +1,30 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+
+# Data — never commit the big source file, generated warehouse, or raw samples.
+# Sample files hold raw Shodan banners which can contain real leaked secrets.
+data/raw/
+data/samples/
+*.duckdb
+*.duckdb.wal
+# ...except the small serving DB (gold + cached pitches) — needed for hosting
+!data/serving/osprey_serving.duckdb
+
+# The Shodan source file (lives in ~/Downloads, not the repo)
+test_scans.json.zst
+
+# Env / secrets
+.env
+
+# Role/requirements context — not for the public repo
+docs/context/
+
+# dbt artifacts
+transform/target/
+transform/dbt_packages/
+transform/logs/
+logs/

@@ -1,0 +1,7 @@
+# Deploy subset — ONLY what app/app.py needs at runtime (Streamlit Community Cloud
+# installs this). The full dev environment (dagster, dbt, pyarrow, pydantic, …) is
+# in pyproject.toml / uv.lock and is not needed to serve the cached serving DB.
+streamlit>=1.58.0
+duckdb>=1.5.4
+pandas>=3.0.3
+streamlit-aggrid>=1.2.1.post2

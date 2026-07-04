@@ -1,0 +1,20 @@
+{"domain": "coreserver.jp", "entity_class": "infra"}
+{"domain": "justhost.com", "entity_class": "infra"}
+{"domain": "hostdime.com", "entity_class": "infra"}
+{"domain": "eigbox.net", "entity_class": "infra"}
+{"domain": "domainserver.ne.jp", "entity_class": "infra"}
+{"domain": "megasrv.de", "entity_class": "infra"}
+{"domain": "1e100.net", "entity_class": "infra"}
+{"domain": "fast.net.id", "entity_class": "infra"}
+{"domain": "asianet.co.th", "entity_class": "infra"}
+{"domain": "cgocable.net", "entity_class": "infra"}
+{"domain": "eastlink.ca", "entity_class": "infra"}
+{"domain": "open-telekom-cloud.com", "entity_class": "infra"}
+{"domain": "xvps.ne.jp", "entity_class": "infra"}
+{"domain": "hvvc.us", "entity_class": "infra"}
+{"domain": "sureserver.com", "entity_class": "infra"}
+{"domain": "automattic.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "escalade-climbing.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "serverfault.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "hostelworld.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "zoho.com", "entity_class": "business", "segment": "commercial"}

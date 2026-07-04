@@ -1,0 +1,31 @@
+[project]
+name = "sales-intelligence-platform"
+version = "0.1.0"
+description = "Sales intelligence platform for a cybersecurity vendor's sales team, built on Shodan network-scan data."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "dagster>=1.13.12",
+    "dagster-webserver>=1.13.12",
+    "dbt-duckdb>=1.10.1",
+    "duckdb>=1.5.4",
+    "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
+    "pydantic>=2.13.4",
+    "streamlit>=1.58.0",
+    "streamlit-aggrid>=1.2.1.post2",
+    "zstandard>=0.25.0",
+]
+
+[tool.dagster]
+module_name = "osprey.orchestration.definitions"
+code_location_name = "osprey"
+
+[tool.ruff]
+line-length = 100
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]

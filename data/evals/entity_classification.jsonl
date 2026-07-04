@@ -1,0 +1,41 @@
+{"domain": "netia.com.pl", "entity_class": "infra"}
+{"domain": "bell.ca", "entity_class": "infra"}
+{"domain": "comcast.net", "entity_class": "infra"}
+{"domain": "t-ipconnect.de", "entity_class": "infra"}
+{"domain": "spectrum.com", "entity_class": "infra"}
+{"domain": "ovh.net", "entity_class": "infra"}
+{"domain": "hostgator.com", "entity_class": "infra"}
+{"domain": "bluehost.com", "entity_class": "infra"}
+{"domain": "secureserver.net", "entity_class": "infra"}
+{"domain": "incapdns.net", "entity_class": "infra"}
+{"domain": "amazonaws.com", "entity_class": "infra"}
+{"domain": "googleusercontent.com", "entity_class": "infra"}
+{"domain": "akamaitechnologies.com", "entity_class": "infra"}
+{"domain": "cloudfront.net", "entity_class": "infra"}
+{"domain": "myshopify.com", "entity_class": "infra"}
+{"domain": "wixsite.com", "entity_class": "infra"}
+{"domain": "xserver.jp", "entity_class": "infra"}
+{"domain": "poneytelecom.eu", "entity_class": "infra"}
+{"domain": "ukfast.net", "entity_class": "infra"}
+{"domain": "constant.com", "entity_class": "infra"}
+{"domain": "walmart.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "nike.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "toyota.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "hsbc.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "siemens.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "maersk.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "spotify.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "amazon.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "escalade-climbing.com", "entity_class": "business", "segment": "commercial"}
+{"domain": "stanford.edu", "entity_class": "business", "segment": "education"}
+{"domain": "mit.edu", "entity_class": "business", "segment": "education"}
+{"domain": "ox.ac.uk", "entity_class": "business", "segment": "education"}
+{"domain": "iitb.ac.in", "entity_class": "business", "segment": "education"}
+{"domain": "ca.gov", "entity_class": "business", "segment": "government"}
+{"domain": "nasa.gov", "entity_class": "business", "segment": "government"}
+{"domain": "gov.uk", "entity_class": "business", "segment": "government"}
+{"domain": "india.gov.in", "entity_class": "business", "segment": "government"}
+{"domain": "redcross.org", "entity_class": "business", "segment": "nonprofit"}
+{"domain": "wikipedia.org", "entity_class": "business", "segment": "nonprofit"}
+{"domain": "amnesty.org", "entity_class": "business", "segment": "nonprofit"}
+{"domain": "doctorswithoutborders.org", "entity_class": "business", "segment": "nonprofit"}

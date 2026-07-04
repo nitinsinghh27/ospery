@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Raw Shodan scans landed by the Python ingestion step (osprey.pipelines.ingest_bronze)."
+    schema: bronze
+    tables:
+      - name: shodan_scans
+        description: "One row per scanned service (ip:port) — faithful projection of the source."
+
+  - name: enrichment
+    description: "LLM entity labels (business/infra + segment), produced by osprey.pipelines.enrich_entities and cached."
+    schema: enrichment
+    tables:
+      - name: entity_labels
+        description: "Per-domain LLM verdict for the top-N candidates, with guardrail flags."

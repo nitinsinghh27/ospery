@@ -1,0 +1,9 @@
+osprey:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # Path is relative to the repo root (run dbt from there — see helper_commands.md).
+      path: data/warehouse/osprey.duckdb
+      schema: main
+      threads: 4
