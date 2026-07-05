@@ -56,6 +56,9 @@ pipeline code is written.
 
 - `uv sync` rebuilds the exact environment from `uv.lock` on any machine.
 - Data and generated artifacts are git-ignored; only code, config, docs, and the
-  small inspection sample are versioned.
-- Application containerization (a Dockerfile) is introduced at the **deployment**
-  stage, for hosting the final app.
+  small **serving DB** (`data/serving/osprey_serving.duckdb`) are versioned. Raw
+  samples are **not** committed — they hold real Shodan banners that can contain
+  leaked secrets.
+- **Deployment** is Streamlit Community Cloud reading the committed serving DB
+  (`requirements.txt` = app-only subset); no Docker/container is needed for this
+  prototype.

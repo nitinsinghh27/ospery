@@ -51,5 +51,5 @@ top company → read buying signals + the pitch (cites real actively-exploited C
 
 The full warehouse (~3 GB) is too big to deploy. For hosting we publish a small
 **serving DB** (`build_serving_db.py`) with just `gold.gold_prospects` +
-`gold.gold_company_services` — ~2 MB — and point the app at it (it auto-prefers the
+`gold.gold_company_services` — ~4 MB — and point the app at it (it auto-prefers the
 serving DB when present). Since the app reads only gold, this is a clean config swap.

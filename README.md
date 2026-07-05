@@ -8,6 +8,11 @@ outreach pitches) so a cybersecurity vendor's sales team knows **who to target, 
 
 Built as a take-home for Firmable (Senior Data Engineer, Sourcing).
 
+**[Live demo →](https://ospery.streamlit.app)** — fully interactive: click any prospect
+row to open its detail, filter by region / segment / signal, and read the grounded pitch.
+
+![Osprey — prospect dashboard](imgs/homepage.png)
+
 - **What it does:** detects internet-facing exposures (CVEs, exposed databases,
   end-of-life software, weak certs, VPN/IoT, malware/C2), resolves them to real
   companies, ranks by a transparent lead score, and drafts a grounded sales pitch.
@@ -31,8 +36,10 @@ uv run streamlit run app/app.py                    # http://localhost:8501
 To rebuild the data end-to-end from the source scan file:
 
 ```
-ingest (bronze) → dbt (silver) → LLM enrich (labels) → dbt (gold)
-                → LLM pitches → build serving DB → app
+ingest (bronze) → fetch KEV + EPSS feeds → dbt (silver, KEV/EPSS-aware score)
+                → LLM enrich (entity labels) → dbt (gold)
+                → LLM firmographic extraction + grounded pitches → dbt (gold_prospects)
+                → build serving DB → app
 ```
 
 Every command (ingestion, dbt, enrichment, evals, pitches, Dagster, serving DB) is in
@@ -41,17 +48,31 @@ Every command (ingestion, dbt, enrichment, evals, pitches, Dagster, serving DB) 
 ## Architecture
 
 Medallion: **Bronze** (raw scans) → **Silver** (clean, per-company candidates +
-score) → **LLM enrichment** (business/infra labels + grounded pitches, cached) →
-**Gold** (ranked prospect marts) → **App**. The app reads only cached tables — it
-never calls the LLM live, so the demo is deterministic and shareable with no API key.
+KEV/EPSS-aware score) → **LLM enrichment** (business/infra labels, firmographic
+extraction, grounded pitches — all cached) → **Gold** (ranked prospect marts +
+`gold_prospects` serving model) → **App**. Third-party feeds (CISA KEV, FIRST EPSS)
+join in silver. The app reads only cached tables — it never calls the LLM live, so
+the demo is deterministic and shareable with no API key.
 
-Full detail, diagram, and design trade-offs: [Architecture.md](Architecture.md).
+```mermaid
+flowchart LR
+    A[Shodan scans<br/>.json.zst] --> B[Bronze<br/>raw services]
+    B --> C[Silver<br/>company candidates<br/>+ KEV/EPSS score]
+    C --> D[LLM enrichment<br/>labels · firmographics · pitches<br/>cached]
+    D --> E[Gold<br/>gold_prospects]
+    E --> F[Streamlit app]
+    K[(CISA KEV)] --> C
+    P[(FIRST EPSS)] --> C
+```
+
+Full detail, LLD diagram, and design trade-offs: [Architecture.md](Architecture.md).
 
 ## Stack
 
 DuckDB (warehouse) · dbt (SQL transforms) · Python 3.12 + uv (ingestion, LLM
-orchestration) · Claude via CLI (Haiku for classification, Sonnet for pitches) ·
-Dagster (thin, illustrative lineage) · Streamlit + AgGrid (app).
+orchestration) · Claude via CLI (Haiku for classification, Sonnet for firmographic
+extraction + pitches) · CISA KEV + FIRST EPSS feeds · Dagster (thin, illustrative
+lineage) · Streamlit + AgGrid (app).
 
 ## Repository layout
 
@@ -65,12 +86,29 @@ skills/         reusable SKILL.md specs (e.g. add-llm-enricher) for engineers & 
 Architecture.md project architecture, diagrams, roadmap
 ```
 
+## Screenshots
+
+Ranked prospect list — actively-compromised rows tinted red, KEV-exposed amber;
+click a row to open detail, or use the clickable legend / region chart to filter:
+
+![Prospect list](imgs/prospects.png)
+
+Company detail — transparent score breakdown, firmographics extracted from banners,
+and a grounded outreach pitch citing only real CVEs (KEV/EPSS-tagged):
+
+![Grounded pitch + exposed surface](imgs/pitch-surface.png)
+
 ## Status
 
-**v1 (done):** discovery → bronze → silver → LLM classification + eval → enrichment →
-gold mart + dbt tests → Streamlit app → grounded LLM pitches → Dagster lineage →
-serving DB + hosting.
+**v1 + v2 (done & hosted):** discovery → bronze → silver → LLM classification + eval →
+enrichment → gold mart + dbt tests → Streamlit app → grounded LLM pitches → LLM
+observability traces → Dagster lineage → serving DB + hosting. **v2 added:**
+third-party **CISA KEV** (actively-exploited, +30 score) + **FIRST EPSS** (exploit
+probability) feeds, **LLM firmographic extraction** from banners (org / industry /
+tech, with eval), prospect universe expanded to **~3,973**, richer KEV/EPSS/org-grounded
+pitches (v4), and a redesigned app (company column, red/amber row-marking, region
+territory filter, clickable-legend filters).
 
-**v2 (roadmap):** KEV/NVD severity ranking, Firmable contacts join, firmographic ICP
-filters, recurring ingestion (freshness), CSV/CRM export. See
+**Backlog:** NVD/CVSS severity ranking (rate-limited API), Firmable contacts join,
+firmographic ICP filters, recurring ingestion (freshness), CSV/CRM export. See
 [Architecture.md](Architecture.md#8-honest-limitations--roadmap-v2).

@@ -134,6 +134,16 @@ st.markdown(  # center the KPI metrics
     unsafe_allow_html=True,
 )
 
+# Clickable-legend quick filters (toggled by the buttons under the table). Callbacks
+# mutate state *before* the filter cascade below re-runs, so the click applies at once.
+st.session_state.setdefault("flt_breach", False)
+st.session_state.setdefault("flt_kev", False)
+
+
+def _toggle_flt(flag: str) -> None:
+    st.session_state[flag] = not st.session_state[flag]
+
+
 kpi_slot = st.container()   # KPIs render at the top but reflect the filters below
 
 # --- Filters (in the main screen, below the KPIs) — cascading ----------------
@@ -183,6 +193,19 @@ if search:
 if st.toggle("Well-enriched only (has extracted company profile)", value=False):
     work = work.loc[work["org_name"].notna()]
 
+# Legend quick-filters (set by the clickable legend under the table). When both are
+# on, show the union — every row a rep would see tinted (compromised OR KEV).
+_masks = []
+if st.session_state["flt_breach"]:
+    _masks.append(work["has_breach"] == 1)
+if st.session_state["flt_kev"]:
+    _masks.append(work["has_kev"] == 1)
+if _masks:
+    combined = _masks[0]
+    for m in _masks[1:]:
+        combined = combined | m
+    work = work.loc[combined]
+
 view = cast("pd.DataFrame", work)
 
 with kpi_slot:  # KPIs reflect the filtered view — rendered as small cards
@@ -224,11 +247,14 @@ def render_detail(domain: str) -> None:
     org_name, industry = _txt(row["org_name"]), _txt(row["industry"])
     tech, emails = _lst(row["tech_stack"]), _lst(row["contact_emails"])
     with st.container(border=True):
-        top, close = st.columns([6, 1])
+        top, close = st.columns([9, 1])
         top.subheader(domain)
         if org_name:
             top.caption(org_name)
-        if close.button("Close"):
+        # push the Close button flush to the card's top-right corner
+        st.markdown("<style>.st-key-close_btn{display:flex;justify-content:flex-end;}</style>",
+                    unsafe_allow_html=True)
+        if close.button("Close", key="close_btn"):
             st.session_state["grid_nonce"] = st.session_state.get("grid_nonce", 0) + 1  # remount grid → clear selection
             st.rerun()
 
@@ -290,16 +316,30 @@ detail_slot = st.container()
 
 # --- Prospect list: click any row to open its detail (appears above) ---------
 st.subheader(f"Prospects ({len(view)})")
-lc, rc = st.columns([1, 1])
-lc.caption("Click a row to open a company.")
-rc.markdown(
-    "<div style='text-align:right'><small>"
-    "<span style='background:rgba(220,60,60,0.55);padding:0 8px;border-radius:3px'>&nbsp;</span> "
-    "active compromise &nbsp; "
-    "<span style='background:rgba(230,160,30,0.55);padding:0 8px;border-radius:3px'>&nbsp;</span> "
-    "actively-exploited (KEV)</small></div>",
-    unsafe_allow_html=True,
+
+# Clickable legend = quick signal filters; the colour swatch on each button matches
+# the row tints below. Active buttons get a filled tint (rendered conditionally).
+_legend_css = (
+    "<style>"
+    ".st-key-leg_breach button::before,.st-key-leg_kev button::before{content:'';"
+    "display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;}"
+    ".st-key-leg_breach button::before{background:rgba(220,60,60,0.75);}"
+    ".st-key-leg_kev button::before{background:rgba(230,160,30,0.75);}"
 )
+if st.session_state["flt_breach"]:
+    _legend_css += (".st-key-leg_breach button{background:rgba(220,60,60,0.18)!important;"
+                    "border-color:rgba(220,60,60,0.85)!important;}")
+if st.session_state["flt_kev"]:
+    _legend_css += (".st-key-leg_kev button{background:rgba(230,160,30,0.18)!important;"
+                    "border-color:rgba(230,160,30,0.85)!important;}")
+st.markdown(_legend_css + "</style>", unsafe_allow_html=True)
+
+st.caption("Click a row to open a company.")
+_, b1, b2 = st.columns([6, 1.5, 1.8])   # right-aligned clickable legend (narrow)
+b1.button("Active compromise", key="leg_breach", on_click=_toggle_flt,
+          args=("flt_breach",), use_container_width=True)
+b2.button("Actively-exploited (KEV)", key="leg_kev", on_click=_toggle_flt,
+          args=("flt_kev",), use_container_width=True)
 
 cols = ["domain", "org_name", "segment", "country_name", "score", "kev_count",
         "cve_count", "reasons", "has_breach", "has_kev"]

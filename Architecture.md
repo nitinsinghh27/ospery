@@ -9,58 +9,55 @@ For the *why* (business problem, prospecting methodology, competitive landscape)
 
 ## 1. Data flow (medallion)
 
-```
-  Shodan dump (.json.zst, ~9.2M services)
-        │  Python streaming ingest (Pydantic contract → Arrow bulk insert)
-        ▼
-  ┌───────────────┐   BRONZE   raw, faithful, flat columns
-  │ bronze.shodan │   (one row per scanned service)
-  │    _scans     │
-  └──────┬────────┘
-         │  dbt (SQL): drop honeypots, unnest domains, aggregate signals,
-         │             dedup, deterministic infra classifier, lead score
-         ▼
-  ┌──────────────────────────┐   SILVER   clean, per-company candidates
-  │ silver_services (view)   │◄── reference.kev  (CISA KEV connector — actively exploited)
-  │ silver_company_candidates│◄── reference.epss (FIRST EPSS connector — exploit prob.)
-  └──────────────────────────┘   score = signals + KEV boost; carries max_epss
-         │                                   │ top-N by score
-         │                                   ▼
-         │                        ┌─────────────────────────┐  LLM ENRICHMENT (Python)
-         │                        │ enrichment.entity_labels│  business/infra + segment,
-         │                        │  (cached, versioned)    │  rules-first, LLM residual,
-         │                        └──────────┬──────────────┘  guardrails
-         │                                   │
-         ▼                                   ▼
-  ┌───────────────────────────────────────────────┐   GOLD (core)
-  │ gold_companies   (ranked prospects + reasons)  │
-  │ gold_company_services (per-company drill-down) │◄── reference.country_codes (dbt seed)
-  └──────┬─────────────────────────────────┬──────┘
-         │ prospect list (which domains)   │ prospect list
-         ▼                                 ▼
-  LLM ENRICHMENT — Python, cached, versioned (two steps, each reads gold + raw evidence):
+```mermaid
+flowchart TD
+    SRC[Shodan dump<br/>.json.zst · ~9.2M services]
+    KEV[(CISA KEV<br/>fetch_kev)]
+    EPSS[(FIRST EPSS<br/>fetch_epss)]
+    CC[(country_codes<br/>dbt seed)]
 
-  ┌────────────────────────────┐   extract_profiles  → enrichment.company_profile
-  │ evidence: bronze banners,  │   FIRMOGRAPHICS: org/industry/tech (Sonnet) + emails (regex)
-  │ http titles, TLS certs     │───────────────────────────────────────────────┐
-  └────────────────────────────┘                                                │
-  ┌────────────────────────────┐   generate_pitches  → enrichment.company_pitch │
-  │ evidence: gold_company_     │   PITCH: CVEs + KEV + EPSS + org → outreach     │
-  │ services CVEs + kev + epss  │   (Sonnet, grounded, never invented)           │
-  └────────────────────────────┘                                                │
-                 │ both joined back by dbt (avoids the cycle) ◄──────────────────┘
-                 ▼
-        ┌───────────────────────────────────────────────┐   GOLD (serving)
-        │ gold_prospects = gold_companies + pitch + profile│
-        └───────────────────────┬───────────────────────┘
-                                 ▼
-        ┌──────────────────────────────────────┐
-        │  Streamlit app  (reads gold only,     │
-        │  never calls the LLM live)            │
-        └──────────────────────────────────────┘
+    subgraph B [BRONZE]
+      BR[bronze.shodan_scans<br/>raw · one row per service]
+    end
+    subgraph S [SILVER]
+      SC[silver_company_candidates<br/>clean · per-company · scored<br/>KEV/EPSS-aware · max_epss]
+    end
+    subgraph E1 [LLM ENRICHMENT — entity labels]
+      EL[enrichment.entity_labels<br/>business/infra + segment<br/>rules-first · cached · guardrails]
+    end
+    subgraph G1 [GOLD — core]
+      GC[gold_companies<br/>ranked prospects + reasons]
+      GS[gold_company_services<br/>per-company drill-down]
+    end
+    subgraph E2 [LLM ENRICHMENT — firmographics + pitch]
+      PROF[enrichment.company_profile<br/>org/industry/tech Sonnet + emails regex]
+      PITCH[enrichment.company_pitch<br/>CVE+KEV+EPSS+org grounded · Sonnet]
+    end
+    subgraph G2 [GOLD — serving]
+      GP[gold_prospects<br/>= companies + profile + pitch]
+    end
+    APP[Streamlit app<br/>reads gold only · no live LLM]
 
-  reference.kev / reference.epss  ← fetched by Python connectors (fetch_kev, fetch_epss)
+    SRC -->|Python streaming<br/>ingest| BR
+    BR -->|dbt| SC
+    KEV --> SC
+    EPSS --> SC
+    SC -->|top-N by score| EL
+    SC --> GC
+    EL --> GC
+    CC --> GC
+    GC --> GS
+    GC -. banners / certs .-> PROF
+    GS -. CVEs + KEV + EPSS .-> PITCH
+    GC --> GP
+    PROF --> GP
+    PITCH --> GP
+    GP --> APP
 ```
+
+*The pitch/profile steps read `gold_companies`/`gold_company_services` and write to
+`enrichment`; a downstream `gold_prospects` model joins them back — so the app never
+reads `enrichment` directly and there is no build cycle.*
 
 **Key invariants:** (1) the LLM runs only during offline enrichment builds — the app
 reads **cached, materialized gold** tables, so the demo is deterministic and shareable
@@ -69,6 +66,18 @@ read `gold_companies` and write to `enrichment`, and a downstream `gold_prospect
 model joins them back — so nothing depends on the app reading `enrichment` directly,
 and there is no build cycle.
 
+### What the design produces (app views)
+
+Transparent additive scoring — every point traced back to a signal (§7):
+
+![Company detail — score breakdown](imgs/detail-scoring.png)
+
+Firmographics extracted from banners + a grounded outreach pitch that cites only
+real, verifiable CVEs (KEV/EPSS-tagged):
+
+![Firmographics & targeting signals](imgs/firmographics-signals.png)
+![Grounded pitch + exposed surface](imgs/pitch-surface.png)
+
 ## 2. Stack & why
 
 | Concern | Choice | Rationale (prototype → production analogue) |
@@ -76,7 +85,7 @@ and there is no build cycle.
 | Warehouse | **DuckDB** (one file) | Zero-ops analytical engine; single-file is perfect for a prototype. Prod: Snowflake/BigQuery. |
 | Transforms | **dbt (dbt-duckdb)** | SQL transforms with tests + lineage; portable to any warehouse. |
 | Ingestion / enrichment | **Python 3.12 + uv** | Streaming ingest, LLM orchestration; uv = fast, reproducible env (no Docker needed for a prototype). |
-| LLM | **Claude via CLI transport** | Uses existing login (no API key to share); one swappable transport module. Haiku for classification, Sonnet for pitches. |
+| LLM | **Claude via CLI transport** | Uses existing login (no API key to share); one swappable transport module. Haiku for classification, Sonnet for firmographic extraction + pitches. |
 | Contracts | **Pydantic** | Single source of truth: schema → DuckDB DDL → Arrow schema → validation. |
 | Orchestration | **Dagster** (thin, illustrative) | One-time batch needs no scheduler; shows lineage + that steps are orchestrator-agnostic. |
 | App | **Streamlit + AgGrid** | Fast sales-facing dashboard; AgGrid for clickable rows. |
@@ -126,7 +135,7 @@ Each stage has a `docs/StageN_*.md` with SQL-backed numbers.
 | 5 Entity classification | Stage5 | `pipelines/classify_entities.py`, `llm/*`, `data/evals/` | classifier + eval |
 | 6 Silver transform | Stage6 | `transform/models/silver/*.sql` | candidates + score (503k) |
 | 7 LLM enrichment | Stage7 | `pipelines/enrich_entities.py`, `generate_pitches.py` | labels + pitches (cached) |
-| 8 Gold mart | Stage8 | `transform/models/gold/*.sql`, `schema.yml` | 829 prospects + reasons |
+| 8 Gold mart | Stage8 | `transform/models/gold/*.sql`, `schema.yml` | ~3,973 prospects + reasons |
 | 9 App | Stage9 | `app/app.py` | Streamlit dashboard |
 | 10 Orchestration | (this doc §5) | `orchestration/definitions.py` | Dagster lineage |
 | 11 Hosting | (this doc §6) | `build_serving_db.py`, `requirements.txt` | serving DB + deploy |
@@ -141,7 +150,9 @@ What we do instead: keep every step a **pure, orchestrator-agnostic function** i
 (`orchestration/definitions.py`) purely to show the lineage:
 
 ```
-bronze_scans → silver_models → entity_labels → gold_models → company_pitches
+kev_catalog ┐
+epss_catalog┼→ silver_models → entity_labels → gold_companies ─┬→ company_pitches ─┐
+bronze_scans┘                                                  └→ company_profiles ┴→ gold_prospects
 ```
 
 **Production path:** the same graph gains a **schedule** and a **sensor** on new
@@ -152,7 +163,7 @@ pipelines-vs-orchestration split.
 
 The full warehouse is GBs (bronze/silver). The app reads only `gold.gold_prospects`
 + `gold.gold_company_services`, so `build_serving_db.py` exports just those into a
-**~2 MB serving DB** that is committed and deployed (enrichment is already baked into
+**~4 MB serving DB** that is committed and deployed (enrichment is already baked into
 `gold_prospects`, so no enrichment tables ship). The app auto-prefers the serving DB
 when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.12,
 `requirements.txt` app-only subset) — no API key, no live LLM.
@@ -191,7 +202,7 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
 
 ## 8. Honest limitations & roadmap (v2)
 
-- **Coverage:** LLM labels only the top-N head → 829 verified prospects, not the full
+- **Coverage:** LLM labels a wide head → ~3,973 verified prospects, not the full
   75k signal-bearing candidates. Enrich deeper to grow.
 - **Severity/likelihood:** **CISA KEV** (actively-exploited) boosts the score (+30) and
   leads the reasons; **FIRST EPSS** (exploit probability) is carried per prospect

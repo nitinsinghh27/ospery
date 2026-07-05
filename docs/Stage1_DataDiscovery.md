@@ -17,8 +17,10 @@ Understand the raw Shodan dataset and define how it lands into a raw layer.
 At this size the file is never fully decompressed or loaded into memory. It is
 read as a stream: `zstd -dc test_scans.json.zst | <line-by-line reader>`.
 
-A 500-record spread (every 400th record across a 200k sample) is committed for
-inspection: [`data/samples/sample_500_records.json`](../data/samples/sample_500_records.json).
+A 500-record spread (every 400th record across a 200k sample) is generated locally
+for inspection at `data/samples/sample_500_records.json` (see
+[helper_commands](helper_commands.md#3-samples-datasamples)). It is **git-ignored,
+not committed** — raw Shodan banners can contain real leaked secrets.
 
 ---
 

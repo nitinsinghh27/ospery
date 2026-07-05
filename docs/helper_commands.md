@@ -166,8 +166,9 @@ uv run streamlit run app/app.py                        # http://localhost:8501
 uv run streamlit run app/app.py --server.port 8502     # custom port
 ```
 
-Reads the Gold marts (`gold.gold_companies`, `gold.gold_company_services`) — no
-live LLM. Stop any running dbt/enrichment first (DuckDB is single-writer).
+Reads the Gold serving model (`gold.gold_prospects`) plus `gold.gold_company_services`
+for the drill-down — no live LLM. Stop any running dbt/enrichment first (DuckDB is
+single-writer).
 
 ---
 
@@ -178,7 +179,8 @@ just shows the lineage and that the steps are orchestrator-agnostic.
 
 ```bash
 uv run dagster dev            # open the asset graph (uses [tool.dagster] in pyproject)
-# lineage: bronze_scans -> silver_models -> entity_labels -> gold_models -> company_pitches
+# lineage: kev/epss + bronze_scans -> silver_models -> entity_labels -> gold_companies
+#          -> [company_pitches, company_profiles] -> gold_prospects
 ```
 
 ---
@@ -186,7 +188,7 @@ uv run dagster dev            # open the asset graph (uses [tool.dagster] in pyp
 ## 10. Serving DB + hosting
 
 ```bash
-# Build the small (~2 MB) deployable DB with just gold + cached pitches.
+# Build the small (~4 MB) deployable DB with just gold_prospects + gold_company_services.
 uv run python -m osprey.pipelines.build_serving_db      # -> data/serving/osprey_serving.duckdb
 ```
 

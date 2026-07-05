@@ -18,7 +18,7 @@ transform/
 ├── macros/
 │   └── generate_schema_name.sql   # use "silver"/"gold" as-is (not main_silver)
 └── models/
-    ├── sources.yml            # bronze.shodan_scans declared as a source
+    ├── sources.yml            # bronze.shodan_scans + reference.kev/epss as sources
     └── silver/
         ├── silver_services.sql            # cleaned service grain (view)
         └── silver_company_candidates.sql  # per-company signals + score (table)
@@ -46,9 +46,10 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
   columns Silver needs. A view, so zero storage cost.
 - **`silver_company_candidates`** — unnests `domains`, aggregates each domain's
   services into signals (`has_cve`, `cve_count`, `has_eol`, `has_db`,
-  `has_selfsigned`, `has_vpn`, `has_iot`, `has_breach`, `hosts`, `services`),
-  applies the **deterministic classifier** (`hosts >= 1000 OR infra-keyword →
-  infra`, excluded), and computes the **lead score**.
+  `has_selfsigned`, `has_vpn`, `has_iot`, `has_breach`, `hosts`, `services`), joins
+  the **CISA KEV** and **FIRST EPSS** reference feeds for `kev_count` / `has_kev` /
+  `max_epss`, applies the **deterministic classifier** (`hosts >= 1000 OR
+  infra-keyword → infra`, excluded), and computes the **KEV-aware lead score**.
 
 ---
 

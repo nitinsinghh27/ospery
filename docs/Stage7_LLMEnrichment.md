@@ -152,6 +152,6 @@ org/industry/tech need semantic interpretation of noisy text → LLM. The LLM is
    Eval on 11 labelled orgs: org_name **F1 59% → 100%** after the fix.
 
 **Honest result:** on the (small, clear) labelled set, precision/recall = 100%. Across
-all 829, only ~32% get an org name and ~9% an email — exposure data is sparse, so the
+all ~3,973, only ~49% get an org name and ~2% an email — exposure data is sparse, so the
 **demonstration value (rules-vs-LLM, evals, structured output, grounded) exceeds the
 raw data value** here. That trade-off is the point, and it's stated, not hidden.

@@ -27,6 +27,8 @@ docs/context/
 transform/target/
 transform/dbt_packages/
 transform/logs/
+# dbt anonymous telemetry id (per-machine, regenerated)
+transform/.user.yml
 logs/
 
 # LLM observability traces (runtime; regenerated on each pipeline run)

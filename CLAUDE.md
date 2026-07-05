@@ -10,16 +10,18 @@ Sourcing)**.
 - **DuckDB** — analytical warehouse (one file: `data/warehouse/osprey.duckdb`). Production analogue: Snowflake/BigQuery.
 - **dbt (dbt-duckdb)** — SQL transforms (silver, gold) in `transform/`.
 - **Python 3.12 + uv** — ingestion, LLM enrichment, orchestration (`osprey/`).
-- **LLM** — Claude (Haiku) via the Claude CLI transport; structured output + evals.
-- **Dagster** — orchestration (planned, Stage 10).
+- **LLM** — Claude via the Claude CLI transport: **Haiku** (entity classification) + **Sonnet** (firmographic extraction, pitches); structured output, evals, cost/latency traces.
+- **Dagster** — orchestration (thin asset layer over the pipeline steps; `[tool.dagster]`).
+- **Third-party feeds** — CISA **KEV** (actively-exploited CVEs) + FIRST **EPSS** (exploit probability), joined in silver.
 
 ## Architecture (medallion)
 
 ```
 source .zst -> BRONZE (bronze.shodan_scans, Python)
-            -> SILVER (dbt: silver_services, silver_company_candidates)
-            -> LLM ENRICHMENT (Python: top-N -> enrichment.entity_labels, cached)
-            -> GOLD (dbt: gold_companies + reasons) -> APP (Streamlit)
+            -> SILVER (dbt: silver_services, silver_company_candidates; KEV/EPSS-aware score)
+            -> LLM ENRICHMENT (Python, cached: entity_labels + company_profile [firmographics] + company_pitch)
+            -> GOLD (dbt: gold_companies + reasons; gold_prospects = mart + firmographics + pitch)
+            -> APP (Streamlit, reads gold_prospects only)
 ```
 
 ## Directory map
@@ -27,19 +29,21 @@ source .zst -> BRONZE (bronze.shodan_scans, Python)
 ```
 osprey/            # Python package (shared platform + thin pipeline steps)
   config.py        #   central config (paths, model ids, thresholds)
-  schemas.py       #   ALL Pydantic contracts (ShodanScan, EntityLabel)
+  schemas.py       #   ALL Pydantic contracts (ShodanScan, EntityLabel, CompanyPitch, CompanyProfile)
   warehouse.py     #   the ONLY module that talks to DuckDB
-  llm/             #   shared LLM platform: client (transport), prompts, runner, eval
-  pipelines/       #   dagster-agnostic steps: ingest_bronze, classify_entities, enrich_entities
-  orchestration/   #   Dagster definitions (planned)
-transform/         # dbt project (SQL: silver, gold) - NOT a Python package
+  llm/             #   shared LLM platform: client (transport), prompts, runner, eval, eval_extract, trace
+  pipelines/       #   dagster-agnostic steps: ingest_bronze, classify/enrich_entities, fetch_kev/epss,
+                   #   extract_profiles, generate_pitches, build_serving_db
+  orchestration/   #   Dagster asset definitions (thin wrappers over pipelines)
+transform/         # dbt project (SQL: silver, gold; seeds, tests) - NOT a Python package
 data/
   analysis/        #   ad-hoc discovery SQL (with embedded OUTPUT comments) - not pipeline
-  evals/           #   labelled eval sets for the LLM classifier
-  samples/         #   inspection samples
+  evals/           #   labelled eval sets for the LLM classifier / extractor
+  samples/         #   inspection samples (git-ignored — raw banners contain leaked secrets)
   warehouse/       #   osprey.duckdb (git-ignored)
+  serving/         #   osprey_serving.duckdb (small gold-only DB for hosting; committed)
 docs/              # one Stage doc per stage + context/ + helper_commands.md
-app/               # Streamlit dashboard (planned)
+app/               # Streamlit dashboard (shipped; hosted on Streamlit Cloud)
 ```
 
 ## How to run
@@ -61,19 +65,18 @@ All commands (env, ingestion, dbt, enrichment, eval, DB access) live in
 
 ## Status
 
-**v1 + v2 (in progress).** Pipeline: discovery -> bronze -> silver (KEV/EPSS-aware
+**v1 + v2 shipped & hosted.** Pipeline: discovery -> bronze -> silver (KEV/EPSS-aware
 score) -> LLM classification + eval -> enrichment (labels + firmographic extraction
 w/ eval + grounded pitches) -> gold mart + dbt tests -> serving `gold_prospects` ->
-Streamlit app -> LLM observability/traces -> Dagster lineage (thin) -> serving DB +
-hosting prep -> Architecture/README/ProblemAndApproach + SKILL.md.
-**v2 shipped:** third-party connectors **CISA KEV** (actively-exploited, +30 score) and
+Streamlit app (hosted on Streamlit Cloud) -> LLM observability/traces -> Dagster lineage
+(thin) -> serving DB -> Architecture/README/ProblemAndApproach + SKILL.md.
+**v2 highlights:** third-party connectors **CISA KEV** (actively-exploited, +30 score) and
 **FIRST EPSS** (exploit probability, per-prospect peak); **prospect universe expanded
 to ~3,973** (wider entity classification); **richer pitch v4** (KEV/EPSS/org-grounded);
 app: company column, red/amber row-marking, tech-interpretation, region (ANZ/APAC/EMEA/
 Americas) territory filter, peak-EPSS, well-enriched filter.
-**Remaining:** Streamlit Cloud deploy (GitHub + auth). **v2 backlog:** CVSS/NVD severity
-(rate-limited API), contact data (via Firmable), firmographic ICP, recurring ingestion,
-CSV/CRM export, chat, CSM.
+**Backlog:** CVSS/NVD severity (rate-limited API), contact data (via Firmable),
+firmographic ICP, recurring ingestion, CSV/CRM export, chat, CSM.
 
 ## Working agreement (for the assistant)
 

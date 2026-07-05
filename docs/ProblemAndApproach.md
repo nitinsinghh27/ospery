@@ -72,10 +72,17 @@ and draft grounded outreach.
 
 **Doesn't (honest scope):**
 - No **contact data** — that's Firmable's layer (join on domain).
-- No **firmographics** (size/industry/revenue) → can't yet filter by deal-size ICP.
-- No **severity ranking** — CVEs are counted, not yet weighted by *actively
-  exploited* (KEV/NVD is v2).
+- Only **partial firmographics** — org/industry/tech are extracted from banners
+  (sparse: ~49% get an org name), but no size/revenue → can't yet filter by
+  deal-size ICP.
 - "Need" here means *has an exposure*, not *has budget and is in-market*.
+
+**Does now (shipped since the first cut):**
+- **Severity/likelihood weighting** — CVEs are no longer just counted: **CISA KEV**
+  (actively-exploited) boosts the score and leads the reasons, and **FIRST EPSS**
+  (exploit probability) is carried per prospect. (CVSS/NVD severity is still v2.)
+- **Firmographic extraction** — org / industry / tech stack from exposed banners
+  (LLM), plus contact emails (regex).
 
 These are named, not hidden — see [Architecture.md](../Architecture.md) roadmap.
 

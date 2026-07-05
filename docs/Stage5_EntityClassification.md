@@ -118,5 +118,5 @@ low-confidence predictions to review, and track accuracy over time.
 - Stage A (deterministic) — ✅ done (Stage 4).
 - Claude-CLI transport under Node 22 — ✅ validated.
 - Prompt + Pydantic schema + generic runner + **eval (~95–100% on 61 domains)** — ✅ done.
-- **Institutional-TLD deterministic pre-classification** (fixes govt/edu flips) — ⏭️ next.
-- **Top-N run + cache** (`entity_labels` table) + confidence/cross-check guardrails — ⏭️.
+- **Institutional-TLD deterministic pre-classification** (fixes govt/edu flips) — ✅ done (see [Stage 7](Stage7_LLMEnrichment.md)).
+- **Top-N run + cache** (`entity_labels` table) + confidence/cross-check guardrails — ✅ done (Stage 7).
