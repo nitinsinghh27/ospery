@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from osprey.config import LLM_BATCH_SIZE
-from osprey.llm.prompts import build_entity_prompt
+from osprey.llm.prompts import ENTITY_PROMPT_VERSION, build_entity_prompt
 from osprey.llm.runner import run_structured
 from osprey.schemas import EntityLabel, Segment
 
@@ -38,4 +38,7 @@ def classify_by_tld(domain: str) -> EntityLabel | None:
 
 def classify_entities(domains: list[str], batch_size: int = LLM_BATCH_SIZE) -> list[EntityLabel]:
     """Return an EntityLabel for each classifiable domain (via the LLM)."""
-    return run_structured(domains, build_entity_prompt, EntityLabel, batch_size)
+    return run_structured(
+        domains, build_entity_prompt, EntityLabel, batch_size,
+        task="entity_classification", prompt_version=ENTITY_PROMPT_VERSION,
+    )

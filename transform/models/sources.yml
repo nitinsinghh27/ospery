@@ -8,9 +8,22 @@ sources:
       - name: shodan_scans
         description: "One row per scanned service (ip:port) — faithful projection of the source."
 
+  - name: reference
+    description: "External reference data fetched by connector steps (not LLM/enrichment)."
+    schema: reference
+    tables:
+      - name: kev
+        description: "CISA Known Exploited Vulnerabilities catalog (osprey.pipelines.fetch_kev)."
+      - name: epss
+        description: "FIRST EPSS exploit-probability scores per CVE (osprey.pipelines.fetch_epss)."
+
   - name: enrichment
-    description: "LLM entity labels (business/infra + segment), produced by osprey.pipelines.enrich_entities and cached."
+    description: "Cached LLM enrichment tables, produced by the osprey.pipelines.* steps."
     schema: enrichment
     tables:
       - name: entity_labels
         description: "Per-domain LLM verdict for the top-N candidates, with guardrail flags."
+      - name: company_pitch
+        description: "Cached, grounded sales pitch per gold prospect (osprey.pipelines.generate_pitches)."
+      - name: company_profile
+        description: "Extracted firmographics (org/industry/tech/emails) per gold prospect (osprey.pipelines.extract_profiles)."

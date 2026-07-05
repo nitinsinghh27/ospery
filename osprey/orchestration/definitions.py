@@ -19,6 +19,8 @@ from dagster import AssetExecutionContext, Definitions, MaterializeResult, Metad
 
 from osprey.config import ENRICH_TOP_N
 from osprey.pipelines.enrich_entities import enrich_top_candidates
+from osprey.pipelines.extract_profiles import extract_profiles
+from osprey.pipelines.fetch_kev import fetch_kev
 from osprey.pipelines.generate_pitches import generate_pitches
 from osprey.pipelines.ingest_bronze import ingest_bronze
 
@@ -40,9 +42,17 @@ def bronze_scans(context: AssetExecutionContext) -> MaterializeResult:
     return MaterializeResult(metadata={k: MetadataValue.int(int(v)) if isinstance(v, int) else MetadataValue.text(str(v)) for k, v in stats.items()})
 
 
-@asset(deps=[bronze_scans])
+@asset
+def kev_catalog(context: AssetExecutionContext) -> MaterializeResult:
+    """CISA KEV (actively-exploited CVEs) fetched into reference.kev — joined by silver."""
+    stats = fetch_kev()
+    context.log.info(f"kev: {stats}")
+    return MaterializeResult(metadata={k: MetadataValue.text(str(v)) for k, v in stats.items()})
+
+
+@asset(deps=[bronze_scans, kev_catalog])
 def silver_models(context: AssetExecutionContext) -> MaterializeResult:
-    """dbt silver layer: services + per-company candidates (dedup, signals, score)."""
+    """dbt silver layer: services + per-company candidates (dedup, signals, KEV-aware score)."""
     last = _dbt("silver")
     context.log.info(last)
     return MaterializeResult(metadata={"dbt": MetadataValue.text(last)})
@@ -57,14 +67,15 @@ def entity_labels(context: AssetExecutionContext) -> MaterializeResult:
 
 
 @asset(deps=[entity_labels])
-def gold_models(context: AssetExecutionContext) -> MaterializeResult:
-    """dbt gold layer: the ranked prospect mart + per-company service drill-down."""
-    last = _dbt("gold")
+def gold_companies(context: AssetExecutionContext) -> MaterializeResult:
+    """dbt gold core: the ranked prospect list + per-company service drill-down.
+    Built before pitch/profile because those enrichment steps READ this list."""
+    last = _dbt("gold_companies gold_company_services")
     context.log.info(last)
     return MaterializeResult(metadata={"dbt": MetadataValue.text(last)})
 
 
-@asset(deps=[gold_models])
+@asset(deps=[gold_companies])
 def company_pitches(context: AssetExecutionContext) -> MaterializeResult:
     """LLM sales pitches for each gold prospect, grounded in real CVEs (cached)."""
     stats = generate_pitches()
@@ -72,4 +83,23 @@ def company_pitches(context: AssetExecutionContext) -> MaterializeResult:
     return MaterializeResult(metadata={k: MetadataValue.text(str(v)) for k, v in stats.items()})
 
 
-defs = Definitions(assets=[bronze_scans, silver_models, entity_labels, gold_models, company_pitches])
+@asset(deps=[gold_companies])
+def company_profiles(context: AssetExecutionContext) -> MaterializeResult:
+    """Firmographics extracted from each prospect's exposed banners (rules + LLM, cached)."""
+    stats = extract_profiles()
+    context.log.info(f"profiles: {stats}")
+    return MaterializeResult(metadata={k: MetadataValue.text(str(v)) for k, v in stats.items()})
+
+
+@asset(deps=[company_pitches, company_profiles])
+def gold_prospects(context: AssetExecutionContext) -> MaterializeResult:
+    """dbt final serving model: prospects joined with the cached pitch + firmographics."""
+    last = _dbt("gold_prospects")
+    context.log.info(last)
+    return MaterializeResult(metadata={"dbt": MetadataValue.text(last)})
+
+
+defs = Definitions(assets=[
+    bronze_scans, kev_catalog, silver_models, entity_labels, gold_companies,
+    company_pitches, company_profiles, gold_prospects,
+])

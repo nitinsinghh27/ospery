@@ -48,33 +48,24 @@ def _cve_year(cve: str) -> int:
         return 0
 
 
-def _cve_snippet(entries: list[CveEntry], max_cves: int) -> str:
-    """Build a grounded 'product version (CVE-…, CVE-…)' snippet, newest CVEs first.
-
-    Caps the number of cited CVEs; an old CVE-2007 is far less compelling than a
-    recent one, so products are ordered by their newest CVE.
-    """
-    all_cves: set[str] = set()
-    scored: list[tuple[int, str, str | None, list[str]]] = []
+def _cve_snippet(entries: list[CveEntry], kev: set[str], epss: dict[str, float], max_cves: int) -> str:
+    """Build a grounded, prioritized CVE snippet tagged with real exploitation status:
+    'nginx 1.14.1: CVE-… [KEV, EPSS 94%]; …'. Ranks KEV first, then EPSS, then recency,
+    so the pitch leads with the CVEs that actually matter."""
+    flat: list[tuple[str, str | None, str, bool, float]] = []
     for product, version, cves in entries:
-        all_cves.update(cves)
-        recent = sorted(cves, key=_cve_year, reverse=True)
-        if recent:
-            scored.append((_cve_year(recent[0]), product, version, recent))
-    if not scored:
+        for cve in cves:
+            flat.append((product, version, cve, cve in kev, epss.get(cve, 0.0)))
+    if not flat:
         return ""
+    flat.sort(key=lambda x: (x[3], x[4], _cve_year(x[2])), reverse=True)
 
-    scored.sort(key=lambda x: x[0], reverse=True)
     parts: list[str] = []
-    cited = 0
-    for _, product, version, recent in scored:
-        if cited >= max_cves:
-            break
-        take = recent[: min(2, max_cves - cited)]
-        cited += len(take)
+    for product, version, cve, is_kev, ep in flat[:max_cves]:
         pv = f"{product} {version}".strip() if version else product
-        parts.append(f"{pv} ({', '.join(take)})")
-    tail = f"; +{len(all_cves) - cited} more CVEs" if len(all_cves) > cited else ""
+        tags = (["KEV"] if is_kev else []) + ([f"EPSS {round(ep * 100)}%"] if ep >= 0.05 else [])
+        parts.append(f"{pv}: {cve}" + (f" [{', '.join(tags)}]" if tags else ""))
+    tail = f"; +{len(flat) - len(parts)} more CVEs" if len(flat) > len(parts) else ""
     return "; ".join(parts) + tail
 
 
@@ -91,13 +82,28 @@ def _cve_map(con: duckdb.DuckDBPyConnection) -> dict[str, list[CveEntry]]:
     return out
 
 
+def _kev_set(con: duckdb.DuckDBPyConnection) -> set[str]:
+    """The KEV CVE ids (actively exploited)."""
+    return {str(r[0]) for r in con.execute("SELECT cve_id FROM reference.kev").fetchall()}
+
+
+def _epss_scores(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
+    """EPSS probability per CVE, limited to CVEs seen on gold prospects' services."""
+    rows = con.execute(
+        "SELECT cve_id, epss FROM reference.epss WHERE cve_id IN "
+        "(SELECT DISTINCT unnest(vulns) FROM gold.gold_company_services)"
+    ).fetchall()
+    return {str(c): float(e) for c, e in rows}
+
+
 def _descriptor(row: tuple[object, ...], cve_snippet: str) -> str:
-    """Serialize one gold_companies row into a compact line for the pitch prompt."""
-    domain, segment, country, score, confidence, reasons = row
+    """Serialize one gold_prospects row into a compact line for the pitch prompt."""
+    domain, segment, country, score, confidence, reasons, org_name, industry = row
     items = cast("list[object]", reasons) if isinstance(reasons, (list, tuple)) else []
     signals = "; ".join(str(r) for r in items) if items else "no strong signals"
-    line = (f"domain={domain} | segment={segment} | country={country} | "
-            f"lead_score={score} | confidence={confidence} | signals: {signals}")
+    line = (f"domain={domain} | org={org_name or '?'} | industry={industry or '?'} | "
+            f"segment={segment} | country={country} | lead_score={score} | "
+            f"confidence={confidence} | signals: {signals}")
     if cve_snippet:
         line += f" | notable_cves: {cve_snippet}"
     return line
@@ -112,16 +118,17 @@ def generate_pitches(
     version = PITCH_PROMPT_VERSION
     already = cached_pitch_domains(con, version)
 
-    sql = ("SELECT domain, segment, country_name, score, classification_confidence, reasons "
-           "FROM gold.gold_companies ORDER BY score DESC")
+    sql = ("SELECT domain, segment, country_name, score, classification_confidence, reasons, "
+           "org_name, industry FROM gold.gold_prospects ORDER BY score DESC")
     if limit is not None:
         sql += f" LIMIT {int(limit)}"
     companies = con.execute(sql).fetchall()
     cve_by_domain = _cve_map(con)
+    kev, epss = _kev_set(con), _epss_scores(con)
 
     pending = [c for c in companies if str(c[0]) not in already]
     descriptors = [
-        _descriptor(c, _cve_snippet(cve_by_domain.get(str(c[0]), []), PITCH_MAX_CVES))
+        _descriptor(c, _cve_snippet(cve_by_domain.get(str(c[0]), []), kev, epss, PITCH_MAX_CVES))
         for c in pending
     ]
 
@@ -129,6 +136,7 @@ def generate_pitches(
     pitches = run_structured(
         descriptors, build_prompt, CompanyPitch,
         batch_size=PITCH_BATCH_SIZE, model=PITCH_MODEL,
+        task="pitch", prompt_version=version,
     )
     valid = {str(c[0]) for c in pending}  # only keep pitches for domains we asked about
     rows: list[tuple[object, ...]] = [

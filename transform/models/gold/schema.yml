@@ -23,3 +23,15 @@ models:
       - name: domain
         tests:
           - not_null
+
+  - name: gold_prospects
+    description: "Serving model the app reads: prospects + cached firmographics + pitch."
+    columns:
+      - name: domain
+        description: "Company domain (the prospect key)."
+        tests:
+          - not_null
+          - unique
+      - name: score
+        tests:
+          - not_null

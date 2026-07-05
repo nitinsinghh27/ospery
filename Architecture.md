@@ -21,9 +21,10 @@ For the *why* (business problem, prospecting methodology, competitive landscape)
          │             dedup, deterministic infra classifier, lead score
          ▼
   ┌──────────────────────────┐   SILVER   clean, per-company candidates
-  │ silver_services (view)   │
-  │ silver_company_candidates│──────────────┐
-  └──────────────────────────┘              │ top-N by score
+  │ silver_services (view)   │◄── reference.kev  (CISA KEV connector — actively exploited)
+  │ silver_company_candidates│◄── reference.epss (FIRST EPSS connector — exploit prob.)
+  └──────────────────────────┘   score = signals + KEV boost; carries max_epss
+         │                                   │ top-N by score
          │                                   ▼
          │                        ┌─────────────────────────┐  LLM ENRICHMENT (Python)
          │                        │ enrichment.entity_labels│  business/infra + segment,
@@ -31,26 +32,42 @@ For the *why* (business problem, prospecting methodology, competitive landscape)
          │                        └──────────┬──────────────┘  guardrails
          │                                   │
          ▼                                   ▼
-  ┌───────────────────────────────────────────────┐   GOLD   prospect marts
+  ┌───────────────────────────────────────────────┐   GOLD (core)
   │ gold_companies   (ranked prospects + reasons)  │
   │ gold_company_services (per-company drill-down) │◄── reference.country_codes (dbt seed)
   └──────┬─────────────────────────────────┬──────┘
-         │  grounded CVEs+versions          │
-         ▼                                  │
-  ┌─────────────────────────┐  LLM PITCHES │
-  │ enrichment.company_pitch│  (Sonnet,    │
-  │  (cached, versioned)    │   grounded)  │
-  └──────────┬──────────────┘              │
-             ▼                             ▼
+         │ prospect list (which domains)   │ prospect list
+         ▼                                 ▼
+  LLM ENRICHMENT — Python, cached, versioned (two steps, each reads gold + raw evidence):
+
+  ┌────────────────────────────┐   extract_profiles  → enrichment.company_profile
+  │ evidence: bronze banners,  │   FIRMOGRAPHICS: org/industry/tech (Sonnet) + emails (regex)
+  │ http titles, TLS certs     │───────────────────────────────────────────────┐
+  └────────────────────────────┘                                                │
+  ┌────────────────────────────┐   generate_pitches  → enrichment.company_pitch │
+  │ evidence: gold_company_     │   PITCH: CVEs + KEV + EPSS + org → outreach     │
+  │ services CVEs + kev + epss  │   (Sonnet, grounded, never invented)           │
+  └────────────────────────────┘                                                │
+                 │ both joined back by dbt (avoids the cycle) ◄──────────────────┘
+                 ▼
+        ┌───────────────────────────────────────────────┐   GOLD (serving)
+        │ gold_prospects = gold_companies + pitch + profile│
+        └───────────────────────┬───────────────────────┘
+                                 ▼
         ┌──────────────────────────────────────┐
-        │  Streamlit app  (reads cached tables, │
+        │  Streamlit app  (reads gold only,     │
         │  never calls the LLM live)            │
         └──────────────────────────────────────┘
+
+  reference.kev / reference.epss  ← fetched by Python connectors (fetch_kev, fetch_epss)
 ```
 
-**Key invariant:** the LLM runs only during offline enrichment builds. The app reads
-**cached, materialized** tables — so the demo is deterministic, reproducible, and
-shareable with no API key.
+**Key invariants:** (1) the LLM runs only during offline enrichment builds — the app
+reads **cached, materialized gold** tables, so the demo is deterministic and shareable
+with no API key. (2) **Gold is the single serving contract**; the pitch/profile steps
+read `gold_companies` and write to `enrichment`, and a downstream `gold_prospects`
+model joins them back — so nothing depends on the app reading `enrichment` directly,
+and there is no build cycle.
 
 ## 2. Stack & why
 
@@ -72,15 +89,20 @@ osprey/                       # Python package (platform + thin pipeline steps)
   schemas.py                  #   ALL Pydantic contracts + Bronze DuckDB DDL
   warehouse.py                #   the ONLY module that talks to DuckDB
   llm/                        #   shared LLM platform
-    client.py                 #     CLI transport (swap this for the API in prod)
-    prompts.py                #     versioned prompts (entity, pitch)
+    client.py                 #     CLI transport + per-call trace (swap for API in prod)
+    prompts.py                #     versioned prompts (entity, pitch, extraction)
     runner.py                 #     batched + concurrent structured-output runner
-    eval.py                   #     labelled-eval scoring (precision/recall/F1)
+    trace.py                  #     observability: token/cost/latency trace per call
+    eval.py                   #     entity-classification eval (precision/recall/F1)
+    eval_extract.py           #     firmographic-extraction eval (precision/recall/F1)
   pipelines/                  #   dagster-agnostic pure functions:
-    ingest_bronze.py          #     stream .zst → bronze
+    ingest_bronze.py          #     stream .zst -> bronze
+    fetch_kev.py              #     CISA KEV connector -> reference.kev
+    fetch_epss.py             #     FIRST EPSS connector -> reference.epss
     classify_entities.py      #     TLD rule + LLM classify
-    enrich_entities.py        #     top-N → entity_labels (cached)
-    generate_pitches.py       #     gold → grounded pitches (cached)
+    enrich_entities.py        #     top-N -> entity_labels (cached)
+    generate_pitches.py       #     gold -> grounded pitches (cached)
+    extract_profiles.py       #     banners -> firmographics (rules + LLM, cached)
     build_serving_db.py       #     export small deployable DB
   orchestration/
     definitions.py            #   Dagster assets wrapping the pipeline steps
@@ -128,10 +150,11 @@ pipelines-vs-orchestration split.
 
 ## 6. Hosting
 
-The full warehouse is GBs (bronze/silver). The app reads only `gold.*` +
-`enrichment.company_pitch`, so `build_serving_db.py` exports those into a **~2 MB
-serving DB** that is committed and deployed. The app auto-prefers the serving DB when
-present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.12,
+The full warehouse is GBs (bronze/silver). The app reads only `gold.gold_prospects`
++ `gold.gold_company_services`, so `build_serving_db.py` exports just those into a
+**~2 MB serving DB** that is committed and deployed (enrichment is already baked into
+`gold_prospects`, so no enrichment tables ship). The app auto-prefers the serving DB
+when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.12,
 `requirements.txt` app-only subset) — no API key, no live LLM.
 
 ## 7. Design decisions & trade-offs
@@ -142,17 +165,40 @@ present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.12,
 - **LLM as a production system, not a toy.** Versioned prompts, labelled evals,
   confidence gating + deterministic guardrails, cached/idempotent outputs, grounded
   (never-invented) CVE citations.
+- **Observability from day one.** Every LLM call is traced (`osprey/llm/trace.py`) with
+  prompt version, model, token usage, cost, latency, and success — append-only JSONL,
+  thread-safe under the concurrent runner. `python -m osprey.llm.trace` reports
+  cost/latency per task; the foundation for cost ceilings and model-drift detection.
+- **Extraction: rules where regular, LLM where semantic.** Firmographics from messy
+  banners — emails by regex, org/industry/tech by Sonnet (barred from inventing). A
+  labelled eval (`eval_extract.py`) caught real bugs (SSH strings as emails, null-byte
+  crashes, signal-blind sampling); fixing sampling took org F1 59% → 100% on the set.
+- **Third-party enrichment where it sharpens the signal.** Two free, no-auth connectors
+  — `fetch_kev.py` (CISA KEV, actively-exploited) and `fetch_epss.py` (FIRST EPSS,
+  exploit probability) — land as `reference.*` dbt sources that silver joins, so
+  "exploited in the wild" / "97% exploit-likely" (not just "a CVE exists") drive
+  ranking and the pitch. The connector + reference-data pattern the role wants. An
+  honest finding: in this exposure-heavy data EPSS≥0.5 is near-universal (weak score
+  discriminator), so it's used for the pitch/display, not forced into the score.
 - **Single-writer warehouse.** Steps run in dependency order; the app connects
   read-only. (Prod: a real warehouse removes this constraint.)
 - **Transparency over black-box.** The lead score is an explainable additive formula,
   surfaced in-app as a breakdown — no unexplainable numbers.
+- **Skills over scripts.** The recurring enrichment shape (rules-first, schema, versioned
+  prompt, cache, eval, trace, gold-join) is packaged as a reusable spec:
+  [`skills/add-llm-enricher/SKILL.md`](skills/add-llm-enricher/SKILL.md) — loadable by
+  engineers and agents to add the next enricher consistently.
 
 ## 8. Honest limitations & roadmap (v2)
 
 - **Coverage:** LLM labels only the top-N head → 829 verified prospects, not the full
   75k signal-bearing candidates. Enrich deeper to grow.
-- **Severity:** CVEs counted, not weighted by *actively exploited* → **KEV/NVD** join.
-- **No contacts / firmographics** → **Firmable** join (people) + firmographic ICP.
+- **Severity/likelihood:** **CISA KEV** (actively-exploited) boosts the score (+30) and
+  leads the reasons; **FIRST EPSS** (exploit probability) is carried per prospect
+  (peak) for the pitch + display. **CVSS (NVD)** severity is v2 — its per-CVE API is
+  rate-limited, impractical for thousands of CVEs without a bulk pull.
+- **Firmographics:** basic org/industry/tech now **extracted from banners** (sparse —
+  ~32% get an org name); deeper firmographic ICP + **contacts via Firmable** is v2.
 - **Freshness:** a single-day scan slice; production needs recurring ingestion.
 - **Score weights** are a heuristic prior, not calibrated on conversion data.
 - **Ethical framing:** exposure ≠ certainty; outreach language stays "we noticed",

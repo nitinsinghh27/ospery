@@ -32,7 +32,7 @@ def build_entity_prompt(domains: list[str]) -> str:
 
 # --- Sales-pitch generation --------------------------------------------------
 
-PITCH_PROMPT_VERSION = "v3"
+PITCH_PROMPT_VERSION = "v4"
 
 
 def _pitch_instructions(solution: str) -> str:
@@ -41,29 +41,31 @@ def _pitch_instructions(solution: str) -> str:
 
 Our offering: {solution}
 
-For each company you get: domain, segment, country, lead_score, confidence, the
-exposure signals we detected, and (when available) notable_cves — REAL CVEs tied
-to specific products/versions found on their internet-facing systems.
+For each company you get: domain, org (if identified), industry, segment, country,
+lead_score, confidence, the exposure signals we detected, and (when available)
+notable_cves — REAL CVEs tied to specific products/versions, tagged with:
+  [KEV]      = on CISA's Known Exploited Vulnerabilities list (actively exploited now)
+  [EPSS x%]  = modelled probability of exploitation in the next 30 days
 
 Write a short, credible outreach pitch a sales rep can send:
 - 3-4 sentences. Consultative and specific, NOT alarmist — no fear-mongering, no
-  fake urgency, no "immediate risk!" language. Sound like a knowledgeable peer.
-- Open with a concrete, verifiable observation. When notable_cves are given,
-  reference 1-2 of them naming the product and version (e.g. "your public nginx
-  1.18.0 is affected by CVE-2024-39929"). This specificity is what makes it land.
-- Tailor to the segment (compliance/citizen-data for government; student & research
-  data for education; uptime/customer-trust for commercial).
-- Close by connecting the findings to how we help: position that our platform can
-  address the full range of what we found — "these are exactly the kinds of gaps we
-  help teams fix" — then a soft, specific reason to talk (e.g. a quick review of the
-  exposed surface). Helpful, not a hard sell. No greeting, no signature.
+  fake urgency. Sound like a knowledgeable peer.
+- Open with a concrete, verifiable observation. When notable_cves are given, LEAD
+  with a [KEV] or high-[EPSS] one, naming the product/version and WHY it matters
+  (e.g. "your public nginx 1.18.0 is affected by CVE-2024-39929, which CISA lists as
+  actively exploited"). That specificity + real exploitation status is what lands.
+- If org/industry are known, address the company by name and tailor to the industry
+  (compliance/citizen-data for government; student/research data for education;
+  uptime/customer-trust for commercial).
+- Close by connecting to how we help — "these are exactly the kinds of gaps we help
+  teams fix" — then a soft, specific reason to talk. Helpful, not a hard sell. No
+  greeting, no signature.
 
 Hard rules:
-- Use ONLY the CVEs and versions provided. NEVER invent, guess, or add CVE IDs,
-  products, or versions that are not in the input. If none are given, speak to the
-  signals generally without citing any CVE.
-- Do not dump long CVE lists — cite at most two, then it's fine to say "among
-  others".
+- Use ONLY the data provided. NEVER invent or alter CVE IDs, products, versions,
+  org names, or exploitation status. If no CVEs are given, speak to the signals
+  generally without citing any CVE.
+- Do not dump long CVE lists — cite at most two, then "among others" is fine.
 
 Return ONLY a compact JSON array, one object per input company, no prose and no
 markdown fences:
@@ -74,3 +76,36 @@ def build_pitch_prompt(companies: list[str], solution: str) -> str:
     """Compose the pitch prompt for a batch of pre-formatted company descriptors."""
     listing = "\n".join(companies)
     return f"{_pitch_instructions(solution)}\n\nCompanies:\n{listing}"
+
+
+# --- Firmographic extraction from exposed banners ----------------------------
+
+EXTRACT_PROMPT_VERSION = "v1"
+
+_EXTRACT_INSTRUCTIONS = """You extract a firmographic profile for a company from the
+noisy evidence its internet-exposed services leak: HTTP page titles, server headers,
+product fingerprints, TLS certificate subjects, and raw banner snippets.
+
+For each domain extract:
+- "org_name": the real organization's name if identifiable from the evidence — NOT a
+  hosting/CDN/ISP provider (e.g. Cloudflare, cPanel, AWS). null if not identifiable.
+- "industry": a short sector label (e.g. telecom, university, e-commerce, healthcare,
+  government, hosting, manufacturing). null if unclear.
+- "tech_stack": concrete technologies/products visible in the evidence (e.g. nginx,
+  Apache, WordPress, OpenSSH, Exim, MySQL). Normalized names, NO version numbers.
+
+Hard rules:
+- Use ONLY the evidence. NEVER invent an org name, industry, or technology that the
+  evidence doesn't support. Prefer null / an empty list over a guess.
+- Ignore generic junk titles ("Login", "Redirect", "Default Page", "Object Not Found",
+  "Invalid URL"). Do not treat a hosting/CDN provider as the org.
+
+Return ONLY a compact JSON array, one object per input domain, no prose and no
+markdown fences:
+[{"domain": "...", "org_name": "..."|null, "industry": "..."|null, "tech_stack": [...]}]"""
+
+
+def build_extraction_prompt(evidence: list[str]) -> str:
+    """Compose the firmographic-extraction prompt for a batch of evidence blocks."""
+    listing = "\n".join(evidence)
+    return f"{_EXTRACT_INSTRUCTIONS}\n\nCompanies:\n{listing}"

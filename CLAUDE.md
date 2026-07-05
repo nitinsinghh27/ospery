@@ -61,13 +61,18 @@ All commands (env, ingestion, dbt, enrichment, eval, DB access) live in
 
 ## Status
 
-**v1 complete.** Stages 1–11 done: discovery -> bronze -> silver -> LLM
-classification + eval -> enrichment (labels + grounded pitches) -> gold mart + dbt
-tests -> Streamlit app (AgGrid, score breakdown, cached pitches) -> Dagster lineage
-(thin/illustrative) -> serving DB + hosting prep -> Architecture.md + README +
-ProblemAndApproach. **Remaining:** actual Streamlit Cloud deploy (needs GitHub +
-account auth). **v2:** KEV/NVD severity ranking, contact data (via Firmable),
-firmographic ICP, recurring ingestion (freshness), LLM extraction from banners,
+**v1 + v2 (in progress).** Pipeline: discovery -> bronze -> silver (KEV/EPSS-aware
+score) -> LLM classification + eval -> enrichment (labels + firmographic extraction
+w/ eval + grounded pitches) -> gold mart + dbt tests -> serving `gold_prospects` ->
+Streamlit app -> LLM observability/traces -> Dagster lineage (thin) -> serving DB +
+hosting prep -> Architecture/README/ProblemAndApproach + SKILL.md.
+**v2 shipped:** third-party connectors **CISA KEV** (actively-exploited, +30 score) and
+**FIRST EPSS** (exploit probability, per-prospect peak); **prospect universe expanded
+to ~3,973** (wider entity classification); **richer pitch v4** (KEV/EPSS/org-grounded);
+app: company column, red/amber row-marking, tech-interpretation, region (ANZ/APAC/EMEA/
+Americas) territory filter, peak-EPSS, well-enriched filter.
+**Remaining:** Streamlit Cloud deploy (GitHub + auth). **v2 backlog:** CVSS/NVD severity
+(rate-limited API), contact data (via Firmable), firmographic ICP, recurring ingestion,
 CSV/CRM export, chat, CSM.
 
 ## Working agreement (for the assistant)

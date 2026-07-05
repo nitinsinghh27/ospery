@@ -106,9 +106,30 @@ uv run dbt run --select silver_company_candidates --project-dir transform --prof
 uv run dbt run --select gold --project-dir transform --profiles-dir transform
 ```
 
+> **Build order (dependency-driven).** silver joins the KEV catalog, and
+> `gold_prospects` joins the cached pitch + firmographics (produced by steps that
+> *read* `gold_companies`) — so the full order is:
+> ```
+> python -m osprey.pipelines.fetch_kev                    # 0. KEV reference (silver needs it)
+> dbt run --select silver                                 #    silver (KEV-aware score)
+> python -m osprey.pipelines.enrich_entities              #    entity labels
+> dbt run --select gold_companies gold_company_services   # 1. core prospect list
+> python -m osprey.pipelines.generate_pitches             #    pitches (reads gold_companies)
+> python -m osprey.pipelines.extract_profiles             #    firmographics (reads gold_companies)
+> dbt run --select gold_prospects                         # 2. final serving model
+> ```
+> Dagster (§9) encodes this ordering as assets.
+
 ---
 
-## 7. LLM entity enrichment + eval
+## 7. Reference data + LLM enrichment + eval
+
+```bash
+# Fetch reference feeds (run before dbt silver — silver joins them into the score).
+uv run python -m osprey.pipelines.fetch_kev      # CISA KEV (actively-exploited CVEs)
+uv run python -m osprey.pipelines.fetch_epss     # FIRST EPSS (exploit probability per CVE)
+```
+
 
 ```bash
 # Classify the top-N candidates (business/infra + segment) -> enrichment.entity_labels
@@ -119,10 +140,18 @@ uv run python -m osprey.pipelines.enrich_entities --top-n 3000
 uv run python -m osprey.llm.eval                                    # clear set
 uv run python -m osprey.llm.eval data/evals/entity_classification_hard.jsonl   # hard set
 
+# LLM observability — cost / latency / token report from the call traces
+uv run python -m osprey.llm.trace                                   # overall + per-task
+
 # Generate cached sales pitches for gold prospects -> enrichment.company_pitch
 # Reads gold.gold_companies, so run AFTER dbt gold. Cached + idempotent.
 uv run python -m osprey.pipelines.generate_pitches                 # all prospects
 uv run python -m osprey.pipelines.generate_pitches --limit 100     # only the top-N
+
+# Extract firmographics (org, industry, tech stack, emails) from exposed banners
+# -> enrichment.company_profile. Rules (regex emails) + LLM (Sonnet, semantic). Cached.
+uv run python -m osprey.pipelines.extract_profiles                 # all prospects
+uv run python -m osprey.llm.eval_extract                           # score org_name P/R
 ```
 
 > Note: the Claude CLI runs under Node 22 (see `osprey/llm/client.py`). The app

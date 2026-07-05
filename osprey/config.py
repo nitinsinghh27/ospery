@@ -19,6 +19,15 @@ LLM_MODEL = "claude-haiku-4-5-20251001"          # cheap classification
 LLM_BATCH_SIZE = 25
 LLM_MAX_WORKERS = 6                              # concurrent LLM calls (I/O-bound)
 
+# --- Reference data (CISA KEV — known exploited vulnerabilities) --------------
+KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+KEV_TABLE = "reference.kev"
+
+# --- Reference data (FIRST EPSS — exploit prediction scores) ------------------
+EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+EPSS_TABLE = "reference.epss"
+EPSS_HIGH = 0.5   # epss probability at/above this counts as "high likelihood"
+
 # --- Enrichment (LLM entity labels) ------------------------------------------
 ENRICHMENT_TABLE = "enrichment.entity_labels"
 ENRICH_TOP_N = 500                               # classify the top-N candidates by score
@@ -30,6 +39,13 @@ PITCH_TABLE = "enrichment.company_pitch"
 PITCH_MODEL = "claude-sonnet-5"                  # better prose than Haiku for pitches
 PITCH_BATCH_SIZE = 6                             # smaller batch: pitch output is longer
 PITCH_MAX_CVES = 4                               # notable CVEs to ground the pitch in
+
+# --- Enrichment (LLM firmographic extraction from banners) -------------------
+PROFILE_TABLE = "enrichment.company_profile"
+PROFILE_MODEL = "claude-sonnet-5"                # nuanced extraction -> Sonnet (JD split)
+PROFILE_BATCH_SIZE = 6
+PROFILE_MAX_EVIDENCE_ROWS = 8                    # exposed services sampled per domain
+PROFILE_BANNER_CHARS = 200                       # truncate each banner snippet
 
 # What the vendor sells — injected into the pitch so it positions "we can fix all
 # of this". Swappable: any cyber vendor drops in their own offering and regenerates.

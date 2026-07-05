@@ -28,3 +28,6 @@ transform/target/
 transform/dbt_packages/
 transform/logs/
 logs/
+
+# LLM observability traces (runtime; regenerated on each pipeline run)
+data/traces/

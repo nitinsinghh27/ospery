@@ -1,9 +1,10 @@
 # Stage 9 — App (Streamlit dashboard)
 
-The demo: a sales-facing dashboard for prospecting. It reads the **Gold marts** and
-the **cached LLM enrichment** (labels + pitches) and lets a rep filter, rank, and
-open a company to see *why* it's a lead. **No live LLM** — the app only reads
-materialized/cached tables.
+The demo: a sales-facing dashboard for prospecting. It reads a single serving model
+**`gold.gold_prospects`** (prospects + cached firmographics + pitch, joined by dbt)
+plus `gold.gold_company_services` for the drill-down, and lets a rep filter, rank, and
+open a company to see *why* it's a lead. **No live LLM, and the app reads only gold** —
+never the `enrichment.*` tables directly.
 
 Code: [`app/app.py`](../app/app.py) · run: `uv run streamlit run app/app.py`.
 
@@ -13,15 +14,16 @@ Code: [`app/app.py`](../app/app.py) · run: `uv run streamlit run app/app.py`.
 
 | Area | Content |
 |---|---|
-| **KPIs** | Prospects (filtered), actively-compromised, total CVEs, countries |
-| **Sidebar filters** | Segment · Country · Signal type · Min score · Domain search — **cascading** (each filter's options reflect the ones above, so no dead options) |
-| **Prospect list** | Clickable **AgGrid** table ranked by lead score — domain, segment, country (full name), score, #CVEs, top reasons. Click a row → detail opens above. |
-| **Company detail** | Score / segment / country / confidence, **Score breakdown** (per-signal points), **Buying signals** (plain-English reasons), **Suggested outreach pitch** (cached, grounded), **View exposed surface** drill-down, **Contacts (via Firmable)** placeholder |
+| **KPIs** | Prospects · actively-exploited (KEV) · actively-compromised · total CVEs · countries |
+| **Sidebar filters** | Segment · **Region** (ANZ/APAC/EMEA/Americas territory) · Country · **Well-enriched only** · Signal type · Min score · Domain search — **cascading** (no dead options) |
+| **Prospect list** | Clickable **AgGrid** table by lead score — **Company** (extracted org), domain, segment, country, score, **KEV**, #CVEs, top reasons. **Actively-compromised rows tinted red, KEV-exposed amber.** Click a row → detail above. |
+| **Company detail** | Score / segment / country / confidence / **peak exploit prob. (EPSS)**, **Score breakdown**, **Firmographics** (industry, **notable exposure** = interpreted tech, footprint, emails), **Buying signals**, **Suggested outreach pitch** (KEV/EPSS/org-grounded), **View exposed surface**, **Contacts (via Firmable)** |
+| **Region breakdown** | Prospects-by-region chart (sales territory view) |
 
 ## 2. Rep workflow
 
-Filter to my territory / segment → open a top-scored company → read the buying
-signals + the suggested pitch (which cites the real CVEs/products) → call.
+Filter to my region/segment → scan the red (compromised) / amber (KEV) rows → open a
+top company → read buying signals + the pitch (cites real actively-exploited CVEs) → call.
 
 ## 3. Key UI decisions
 
@@ -48,6 +50,6 @@ signals + the suggested pitch (which cites the real CVEs/products) → call.
 ## 5. Hosting
 
 The full warehouse (~3 GB) is too big to deploy. For hosting we publish a small
-**serving DB** with just the Gold tables + cached enrichment (labels, pitches) — a
-few MB — and point the app at it. The app already reads only `gold.*` and
-`enrichment.company_pitch`, so this is a config swap (Stage 11).
+**serving DB** (`build_serving_db.py`) with just `gold.gold_prospects` +
+`gold.gold_company_services` — ~2 MB — and point the app at it (it auto-prefers the
+serving DB when present). Since the app reads only gold, this is a clean config swap.

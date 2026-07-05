@@ -21,17 +21,20 @@ def run_structured(
     batch_size: int,
     max_workers: int = LLM_MAX_WORKERS,
     model: str = LLM_MODEL,
+    task: str = "",
+    prompt_version: str = "",
 ) -> list[T]:
     """Run `items` through the LLM in batches, returning validated `model_cls` rows.
 
     Batches run concurrently (calls are I/O-bound — each waits on the model), so a
     pool of workers is ~`max_workers`x faster than sequential. Malformed rows (fail
     JSON parse or schema validation) are skipped; failed batches are skipped too.
+    `task`/`prompt_version` are attached to each call's observability trace.
     """
     batches = [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
     def run_one(chunk: list[str]) -> list[dict[str, object]] | None:
-        return _call_batch(chunk, build_prompt, model)
+        return _call_batch(chunk, build_prompt, model, task, prompt_version)
 
     out: list[T] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -47,13 +50,19 @@ def run_structured(
 
 
 def _call_batch(
-    chunk: list[str], build_prompt: Callable[[list[str]], str], model: str = LLM_MODEL
+    chunk: list[str],
+    build_prompt: Callable[[list[str]], str],
+    model: str = LLM_MODEL,
+    task: str = "",
+    prompt_version: str = "",
 ) -> list[dict[str, object]] | None:
     """One LLM call + parse, with a single retry. Returns None if it still fails
     (empty output, timeout, unparseable) so the caller can skip that batch."""
     for _ in range(2):
         try:
-            return parse_json_array(run_claude(build_prompt(chunk), model=model))
+            return parse_json_array(
+                run_claude(build_prompt(chunk), model=model, task=task, prompt_version=prompt_version)
+            )
         except Exception:
             continue
     return None

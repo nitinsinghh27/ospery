@@ -36,20 +36,45 @@ classified as (
           'usercontent|amazonaws|cloudfront|awsglobalaccelerator|awsdns|cloudapp|1e100|googleusercontent|cloudflar|incapdns|incapsula|imperva|akamai|edgekey|edgesuite|fastly|sucuri|hetzner|your-server|digitalocean|linode|vultr|scaleway|scw\.cloud|contabo|ovh\.|hostgator|bluehost|hostmonster|secureserver|hostinger|websitewelcome|webhostbox|kasserver|unifiedlayer|dreamhost|siteground|liquidweb|rackspace|inmotionhosting|myvps|xrea|stackcp|upcloud|kagoya|mwprem|sakura|xserver|lolipop|bizmw|znlc|etius|wixsite|wix\.com|squarespace|weebly|shopify|webflow|multiscreensite|herokuapp|netlify|vercel|wordpress|plesk|cpanel|hwclouds|\.cloud$|\.host$|localhost|notexist|traefik|invalid\.|example\.(com|net|org)|imap\.example')
         ) as is_infra
     from per_domain
+),
+
+-- count each domain's distinct CVEs that CISA lists as actively exploited (KEV) —
+-- the strongest CVE signal: exploited in the wild, not merely "a CVE exists".
+kev_by_domain as (
+    select domain, count(distinct cve) as kev_count
+    from (select domain, unnest(vulns) as cve from domain_scans)
+    where cve in (select cve_id from {{ source('reference', 'kev') }})
+    group by domain
+),
+
+-- peak EPSS: the highest exploitation probability among the domain's CVEs. Great for
+-- the pitch ("a CVE with 97% exploit probability") and display; carried, not scored
+-- (in this exposure-heavy data almost every prospect has a high-EPSS CVE).
+epss_by_domain as (
+    select d.domain, max(e.epss) as max_epss
+    from (select domain, unnest(vulns) as cve from domain_scans) d
+    join {{ source('reference', 'epss') }} e on e.cve_id = d.cve
+    group by d.domain
 )
 
 select
-    domain,
-    country,
-    services,
-    hosts,
-    cve_count,
-    has_cve, has_eol, has_db, has_selfsigned, has_vpn, has_iot, has_breach,
-    -- lead score (weights: breach >> cve >= db > eol > self-signed >= vpn/iot,
-    -- plus a small attack-surface bonus). Capped components; ~0-113 raw.
-    has_breach * 40
-      + case when cve_count > 0 then 15 + least(cve_count * 2, 20) else 0 end
-      + has_db * 20 + has_eol * 15 + has_selfsigned * 10 + has_vpn * 8 + has_iot * 8
-      + least(cast(round(log2(services + 1) * 3) as int), 10)                       as score
-from classified
-where not is_infra
+    c.domain,
+    c.country,
+    c.services,
+    c.hosts,
+    c.cve_count,
+    coalesce(k.kev_count, 0)                              as kev_count,
+    (coalesce(k.kev_count, 0) > 0)::int                  as has_kev,
+    round(coalesce(ep.max_epss, 0), 4)                   as max_epss,
+    c.has_cve, c.has_eol, c.has_db, c.has_selfsigned, c.has_vpn, c.has_iot, c.has_breach,
+    -- lead score (weights: breach >> actively-exploited(KEV) >= cve >= db > eol >
+    -- self-signed >= vpn/iot, plus a small attack-surface bonus).
+    c.has_breach * 40
+      + case when coalesce(k.kev_count, 0) > 0 then 30 else 0 end
+      + case when c.cve_count > 0 then 15 + least(c.cve_count * 2, 20) else 0 end
+      + c.has_db * 20 + c.has_eol * 15 + c.has_selfsigned * 10 + c.has_vpn * 8 + c.has_iot * 8
+      + least(cast(round(log2(c.services + 1) * 3) as int), 10)                     as score
+from classified c
+left join kev_by_domain k on k.domain = c.domain
+left join epss_by_domain ep on ep.domain = c.domain
+where not c.is_infra

@@ -61,6 +61,7 @@ transform/      dbt project — silver + gold SQL, tests, country seed
 app/            Streamlit dashboard
 data/           analysis SQL, eval sets, samples, serving DB (warehouse is git-ignored)
 docs/           one doc per stage + ProblemAndApproach + helper_commands + context/
+skills/         reusable SKILL.md specs (e.g. add-llm-enricher) for engineers & agents
 Architecture.md project architecture, diagrams, roadmap
 ```
 

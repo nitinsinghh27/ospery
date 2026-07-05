@@ -13,7 +13,15 @@ from typing import cast
 import duckdb
 import pyarrow as pa
 
-from osprey.config import BRONZE_TABLE, ENRICHMENT_TABLE, PITCH_TABLE, WAREHOUSE_DB
+from osprey.config import (
+    BRONZE_TABLE,
+    ENRICHMENT_TABLE,
+    EPSS_TABLE,
+    KEV_TABLE,
+    PITCH_TABLE,
+    PROFILE_TABLE,
+    WAREHOUSE_DB,
+)
 from osprey.schemas import duckdb_ddl, duckdb_types
 
 # DuckDB type -> PyArrow type, so batches match the table exactly (incl. all-null
@@ -141,4 +149,69 @@ def upsert_company_pitch(con: duckdb.DuckDBPyConnection, rows: list[tuple[object
         return
     con.executemany(
         f"INSERT INTO {PITCH_TABLE} VALUES (?,?,?) ON CONFLICT DO NOTHING", rows
+    )
+
+
+# --- Reference data (CISA KEV catalog) ---------------------------------------
+
+def replace_kev(con: duckdb.DuckDBPyConnection, rows: list[tuple[object, ...]]) -> None:
+    """Full-reload the KEV reference table (external catalog, replaced wholesale)."""
+    con.execute("CREATE SCHEMA IF NOT EXISTS reference")
+    con.execute(f"""
+        CREATE OR REPLACE TABLE {KEV_TABLE} (
+            cve_id            VARCHAR PRIMARY KEY,
+            vendor            VARCHAR,
+            product           VARCHAR,
+            date_added        DATE,
+            known_ransomware  BOOLEAN
+        )
+    """)
+    if rows:
+        con.executemany(f"INSERT INTO {KEV_TABLE} VALUES (?,?,?,?,?)", rows)
+
+
+def replace_epss(con: duckdb.DuckDBPyConnection, csv_path: str) -> int:
+    """Full-reload EPSS scores from a decompressed CSV (line 1 is a #meta comment).
+    Uses DuckDB's native CSV reader — 345k rows load in one shot, no row-by-row insert."""
+    con.execute("CREATE SCHEMA IF NOT EXISTS reference")
+    con.execute(f"""
+        CREATE OR REPLACE TABLE {EPSS_TABLE} AS
+        SELECT cve AS cve_id, epss::DOUBLE AS epss, percentile::DOUBLE AS percentile
+        FROM read_csv('{csv_path}', skip=1, header=true, auto_detect=true)
+    """)
+    return con.execute(f"SELECT count(*) FROM {EPSS_TABLE}").fetchone()[0]  # type: ignore[index]
+
+
+# --- Enrichment cache (LLM firmographic profiles) ----------------------------
+
+def create_company_profile_table(con: duckdb.DuckDBPyConnection) -> None:
+    """Create the firmographic-profile cache table (idempotent)."""
+    con.execute("CREATE SCHEMA IF NOT EXISTS enrichment")
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {PROFILE_TABLE} (
+            domain          VARCHAR,
+            org_name        VARCHAR,
+            industry        VARCHAR,
+            tech_stack      VARCHAR[],
+            contact_emails  VARCHAR[],
+            prompt_version  VARCHAR,
+            PRIMARY KEY (domain, prompt_version)
+        )
+    """)
+
+
+def cached_profile_domains(con: duckdb.DuckDBPyConnection, prompt_version: str) -> set[str]:
+    """Domains that already have a profile for this prompt version (re-runs skip them)."""
+    rows = con.execute(
+        f"SELECT domain FROM {PROFILE_TABLE} WHERE prompt_version = ?", [prompt_version]
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def upsert_company_profile(con: duckdb.DuckDBPyConnection, rows: list[tuple[object, ...]]) -> None:
+    """Insert new profile rows; existing (domain, prompt_version) keys are left as-is."""
+    if not rows:
+        return
+    con.executemany(
+        f"INSERT INTO {PROFILE_TABLE} VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING", rows
     )

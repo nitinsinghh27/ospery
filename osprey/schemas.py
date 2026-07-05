@@ -106,3 +106,19 @@ class CompanyPitch(BaseModel):
 
     domain: str
     pitch: str
+
+
+# =============================================================================
+# Firmographic extraction — LLM structured extraction from exposed banners
+# =============================================================================
+
+class CompanyProfile(BaseModel):
+    """Firmographics the LLM extracts from a company's exposed banners/titles/certs.
+
+    Semantic fields only — deterministic fields (emails, versions) are pulled by
+    regex in the pipeline, never by the LLM (rules where the structure allows)."""
+
+    domain: str
+    org_name: str | None = None      # real organization name, not a hosting/CDN provider
+    industry: str | None = None      # short sector label (e.g. telecom, university)
+    tech_stack: list[str] = Field(default_factory=list)   # normalized technologies, no versions

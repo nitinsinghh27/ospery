@@ -109,9 +109,49 @@ uv run python -m osprey.pipelines.generate_pitches          # all gold prospects
 **Grounding vs hallucination (the key point):** CVE↔product pairing comes from our
 own `gold_company_services` (each service's real `vulns`), never invented by the
 model. A hard prompt rule forbids adding any CVE/version not in the input, so every
-cited CVE is verifiable. Recent CVEs are preferred (an old CVE-2011 is weak
-outreach); at most two are cited, then "among others".
+cited CVE is verifiable. CVEs are ranked and tagged with real exploitation status —
+`[KEV]` (CISA actively-exploited) and `[EPSS x%]` (FIRST exploit probability) — so the
+pitch leads with what actually matters; at most two are cited, then "among others".
+Org/industry (from firmographics) let it address the company by name.
 
 **Model:** Sonnet (`PITCH_MODEL`) — noticeably more consultative prose than Haiku.
-**Result:** 829/829 prospects have a cached `v3` pitch. Bump `PITCH_PROMPT_VERSION`
-to re-generate on a wording change.
+**Result (`v4`):** every prospect gets a cached pitch grounded in real CVEs + KEV/EPSS
++ firmographics. Bump `PITCH_PROMPT_VERSION` to re-generate on a wording change.
+
+---
+
+## 7. Third enrichment — firmographic extraction from banners
+
+The clearest demonstration of the sourcing role's core skill: **LLM structured
+extraction from low-quality, unstructured text**. Each prospect's exposed services
+leak `banner`, `http_title`, `http_server`, `product`, and `ssl_cert_subject` — messy
+evidence we turn into a firmographic profile.
+
+```
+gold prospects → gather evidence (signal-rich services first, deterministic sample)
+   ├── DETERMINISTIC (regex): contact_emails      [structure is regular → no LLM]
+   └── LLM (Sonnet): org_name, industry, tech_stack [semantic → the LLM earns it]
+   ▼
+   upsert → enrichment.company_profile  (cached, versioned, idempotent)
+```
+
+Code: [`osprey/pipelines/extract_profiles.py`](../osprey/pipelines/extract_profiles.py) ·
+eval: [`osprey/llm/eval_extract.py`](../osprey/llm/eval_extract.py).
+
+**Rule-vs-LLM split (the JD's exact ask):** emails are a regular pattern → regex;
+org/industry/tech need semantic interpretation of noisy text → LLM. The LLM is barred
+(hard prompt rule) from inventing anything not in the evidence — null over a guess.
+
+**Eval-driven — three real bugs the harness/run surfaced and fixed:**
+1. **SSH cipher strings as "emails":** `curve25519-sha256@libssh.org` matched the email
+   regex → blocklisted protocol domains.
+2. **Null bytes in raw banners** crashed the subprocess transport → stripped in the
+   client (defensive, protects every call).
+3. **Non-deterministic, signal-blind sampling** (took arbitrary services) halved recall
+   and broke reproducibility → sample **signal-rich services first, deterministically**.
+   Eval on 11 labelled orgs: org_name **F1 59% → 100%** after the fix.
+
+**Honest result:** on the (small, clear) labelled set, precision/recall = 100%. Across
+all 829, only ~32% get an org name and ~9% an email — exposure data is sparse, so the
+**demonstration value (rules-vs-LLM, evals, structured output, grounded) exceeds the
+raw data value** here. That trade-off is the point, and it's stated, not hidden.

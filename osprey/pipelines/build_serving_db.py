@@ -18,11 +18,11 @@ from osprey.config import WAREHOUSE_DB
 
 SERVING_DB = Path("data/serving/osprey_serving.duckdb")
 
-# Only the tables the app reads.
+# Only what the app reads — gold is the single serving contract (pitch + firmographics
+# are already joined into gold_prospects by dbt, so no enrichment tables needed here).
 _TABLES = [
-    ("gold", "gold_companies"),
+    ("gold", "gold_prospects"),
     ("gold", "gold_company_services"),
-    ("enrichment", "company_pitch"),
 ]
 
 
