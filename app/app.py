@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 from typing import Any, cast
 
+import altair as alt
 import duckdb
 import pandas as pd
 import streamlit as st
@@ -31,7 +32,7 @@ SCORE_HELP = (
 )
 CONF_HELP = (
     "Confidence (0–100%) from the LLM that this domain is a real business (not a "
-    "hosting/ISP provider). Predictions below 70% are flagged and excluded."
+    "hosting/ISP provider)."
 )
 CVE_HELP = "Distinct known CVEs (public vulnerabilities) across the company's exposed services."
 
@@ -45,6 +46,11 @@ KEV_HELP = ("Companies with at least one CVE on CISA's Known Exploited Vulnerabi
             "catalog — actively exploited in the wild, not just theoretically vulnerable.")
 EPSS_HELP = ("Peak EPSS (FIRST) across the company's CVEs — the highest modelled "
              "probability that one of its vulnerabilities is exploited within 30 days.")
+SEGMENT_HELP = ("Segment (commercial / education / government / nonprofit / other) — "
+                "assigned by the LLM entity classifier, with reserved TLDs (.edu/.gov) "
+                "resolved deterministically by rule.")
+COUNTRY_HELP = ("Country of the company's most-common exposed host (Shodan geo-IP), "
+                "mapped to a full name via the ISO-3166 reference seed.")
 
 st.set_page_config(page_title="Osprey — Sales Intelligence", layout="wide")
 
@@ -85,77 +91,109 @@ def _lst(v: object) -> list[str]:
 
 # Turn a raw tech list into sales-relevant "notable exposure" — common web servers
 # (nginx/Apache) tell a rep nothing; exposed cameras / NAS / remote-access do.
-NOTABLE_TECH: list[tuple[tuple[str, ...], str]] = [
-    (("hikvision", "dahua", "axis", "ip camera", "webcam", "nvr"), "Exposed IP cameras / IoT"),
-    (("draytek", "mikrotik", "ubiquiti", "zyxel", "tp-link", "sonicwall", "fortigate",
-      "fortinet", "cisco", "router"), "Network edge / firewall gear"),
-    (("winrm", "rdp", "remote desktop", "vnc", "teamviewer", "anydesk"), "Exposed remote access"),
-    (("synology", "qnap", "truenas", "nas"), "Internet-exposed NAS / storage"),
-    (("mysql", "postgres", "mongodb", "redis", "elasticsearch", "mssql", "couchdb"),
-     "Exposed database"),
-    (("openvpn", "pptp", "ipsec", "wireguard", "fortivpn", "globalprotect"), "VPN endpoint"),
-    (("exim", "postfix", "dovecot", "zimbra", "exchange", "smtp"), "Mail server exposed"),
+# (keywords, label, one-line sales angle) — turns raw tech into what a rep can act on.
+NOTABLE_TECH: list[tuple[tuple[str, ...], str, str]] = [
+    (("hikvision", "dahua", "axis", "ip camera", "webcam", "nvr", "surveillance"),
+     "Exposed IP cameras / IoT", "consumer-grade IoT, weak perimeter — likely SMB"),
+    (("draytek", "mikrotik", "ubiquiti", "zyxel", "tp-link", "netgear", "router"),
+     "SMB network gear", "consumer/SMB edge hardware — under-managed network"),
+    (("sonicwall", "fortigate", "fortinet", "palo alto", "pfsense", "sophos", "watchguard"),
+     "Firewall / security appliance", "already has a security appliance — displacement play"),
+    (("winrm", "rdp", "remote desktop", "vnc", "teamviewer", "anydesk", "ssh"),
+     "Exposed remote access", "internet-facing admin access — lateral-movement risk"),
+    (("synology", "qnap", "truenas", "nas", "freenas"),
+     "Internet-exposed NAS / storage", "data-at-rest exposed to the internet"),
+    (("mysql", "postgres", "mongodb", "redis", "elasticsearch", "mssql", "couchdb", "mariadb"),
+     "Exposed database", "customer/business data reachable from the internet"),
+    (("openvpn", "pptp", "ipsec", "wireguard", "fortivpn", "globalprotect", "anyconnect"),
+     "VPN endpoint", "remote-workforce entry point — high-value target"),
+    (("exim", "postfix", "dovecot", "zimbra", "exchange", "smtp", "roundcube"),
+     "Mail server exposed", "self-hosted email — phishing / BEC surface"),
+    (("wordpress", "joomla", "drupal", "magento", "php"),
+     "Legacy web CMS/stack", "plugin-heavy CMS — frequent, easily-exploited CVEs"),
+    (("scada", "modbus", "niagara", "bacnet", "plc", "hmi"),
+     "Exposed OT / industrial control", "critical infrastructure exposure — high stakes"),
 ]
 
 
-def interpret_tech(tech: list[str]) -> list[str]:
-    """Map a raw tech stack to sales-relevant exposure categories (deduped, ordered)."""
+def interpret_tech(tech: list[str]) -> list[tuple[str, str]]:
+    """Map a raw tech stack to (category, sales angle) pairs (deduped, ordered)."""
     low = " ".join(tech).lower()
-    return [label for keywords, label in NOTABLE_TECH if any(k in low for k in keywords)]
+    return [(label, angle) for keywords, label, angle in NOTABLE_TECH
+            if any(k in low for k in keywords)]
 
 
 companies = load_companies()
 
 st.title("Osprey — Sales Intelligence")
 st.caption("Prospect cybersecurity buyers by their internet-facing exposure — who to target, and why.")
+st.markdown(  # center the KPI metrics
+    "<style>[data-testid='stMetric']{text-align:center;}"
+    "[data-testid='stMetricValue']>div,[data-testid='stMetricLabel']>div"
+    "{justify-content:center;}</style>",
+    unsafe_allow_html=True,
+)
 
-# --- Sidebar filters (cascading: each filter's options reflect the ones above,
-#     so you never see a dead option that would return zero rows) --------------
-st.sidebar.header("Filters")
-view = companies
+kpi_slot = st.container()   # KPIs render at the top but reflect the filters below
 
-search = st.sidebar.text_input("Search domain")
-if search:
-    view = view.loc[view["domain"].str.contains(search, case=False, na=False)]
+# --- Filters (in the main screen, below the KPIs) — cascading ----------------
+st.markdown("##### Filter prospects")
+work = companies
 
-segments = st.sidebar.multiselect("Segment", sorted(view["segment"].unique()))
+# Region: a clickable distribution (sales territory) — the top of the cascade
+if "region" in work.columns:
+    rc = companies["region"].value_counts().reset_index()
+    rc.columns = ["region", "count"]
+    pick = alt.selection_point(fields=["region"], name="region_pick", toggle="true")
+    chart = (
+        alt.Chart(rc).mark_bar(cornerRadiusEnd=4, height=22)
+        .encode(
+            x=alt.X("count:Q", title=None, axis=alt.Axis(grid=False, labels=False)),
+            y=alt.Y("region:N", title=None, sort="-x"),
+            color=alt.condition(pick, alt.value("#4c8bf5"), alt.value("#39404d")),
+            tooltip=[alt.Tooltip("region:N", title="Region"),
+                     alt.Tooltip("count:Q", title="Prospects")],
+        )
+        .add_params(pick).properties(height=130)
+    )
+    ev = cast("Any", st.altair_chart(chart, on_select="rerun", use_container_width=True, key="region_chart"))
+    picked = [d["region"] for d in (ev.selection.get("region_pick", []) if ev else [])]
+    if picked:
+        work = work.loc[work["region"].isin(picked)]
+    st.caption("Click region bars to filter — click several to combine, click again to remove.")
+
+f1, f2, f3, f4 = st.columns([2, 2, 2, 3])
+segments = f1.multiselect("Segment", sorted(work["segment"].unique()))
 if segments:
-    view = view.loc[view["segment"].isin(segments)]
-
-if "region" in view.columns:  # sales territory (ANZ/APAC/EMEA/Americas)
-    regions = st.sidebar.multiselect("Region", sorted(view["region"].dropna().unique()))
-    if regions:
-        view = view.loc[view["region"].isin(regions)]
-
-countries = st.sidebar.multiselect("Country", sorted(view["country_name"].dropna().unique()))
+    work = work.loc[work["segment"].isin(segments)]
+countries = f2.multiselect("Country", sorted(work["country_name"].dropna().unique()))
 if countries:
-    view = view.loc[view["country_name"].isin(countries)]
-
-if st.sidebar.checkbox("Well-enriched only (has company profile)"):
-    view = view.loc[view["org_name"].notna()]
-
+    work = work.loc[work["country_name"].isin(countries)]
 present_signals = [label for label, col in SIGNALS.items()
-                   if int(cast("pd.Series", view[col]).sum()) > 0]
-chosen_signals = st.sidebar.multiselect("Must have signal", present_signals)
+                   if int(cast("pd.Series", work[col]).sum()) > 0]
+chosen_signals = f3.multiselect("Must have signal", present_signals)
 for label in chosen_signals:
-    view = view.loc[view[SIGNALS[label]] == 1]
+    work = work.loc[work[SIGNALS[label]] == 1]
+search = f4.text_input("Search company / domain")
+if search:
+    hit = (work["domain"].str.contains(search, case=False, na=False)
+           | work["org_name"].fillna("").str.contains(search, case=False))
+    work = work.loc[hit]
 
-max_score = int(cast("pd.Series", view["score"]).max()) if len(view) else 0
-min_score = st.sidebar.slider("Min score", 0, max(max_score, 1), 0)
-view = view.loc[view["score"] >= min_score]
+if st.toggle("Well-enriched only (has extracted company profile)", value=False):
+    work = work.loc[work["org_name"].notna()]
 
-# --- KPIs --------------------------------------------------------------------
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Prospects", len(view))
-c2.metric("Actively exploited (KEV)", int(view["has_kev"].sum()), help=KEV_HELP)
-c3.metric("Actively compromised", int(view["has_breach"].sum()),
-          help="Companies with signs of active compromise (malware / C2).")
-c4.metric("Total CVEs", int(view["cve_count"].sum()), help=CVE_HELP)
-c5.metric("Countries", view["country_name"].nunique())
+view = cast("pd.DataFrame", work)
 
-if "region" in view.columns and len(view):
-    with st.expander("Prospects by region (sales territory)"):
-        st.bar_chart(view["region"].value_counts(), horizontal=True, height=200)
+with kpi_slot:  # KPIs reflect the filtered view — rendered as small cards
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Prospects", len(view), border=True)
+    c2.metric("Actively exploited (KEV)", int(cast("pd.Series", view["has_kev"]).sum()),
+              help=KEV_HELP, border=True)
+    c3.metric("Actively compromised", int(cast("pd.Series", view["has_breach"]).sum()),
+              help="Companies with signs of active compromise (malware / C2).", border=True)
+    c4.metric("Total CVEs", int(cast("pd.Series", view["cve_count"]).sum()), help=CVE_HELP, border=True)
+    c5.metric("Countries", int(cast("pd.Series", view["country_name"]).nunique()), border=True)
 
 st.divider()
 
@@ -196,11 +234,11 @@ def render_detail(domain: str) -> None:
 
         max_epss = float(row["max_epss"]) if pd.notna(row["max_epss"]) else 0.0
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Lead score", int(row["score"]), help=SCORE_HELP)
-        m2.metric("Segment", str(row["segment"]))
-        m3.metric("Country", str(row["country_name"]))
-        m4.metric("Confidence", f'{row["classification_confidence"]:.0%}', help=CONF_HELP)
-        m5.metric("Peak exploit prob.", f"{max_epss:.0%}", help=EPSS_HELP)
+        m1.metric("Lead score", int(row["score"]), help=SCORE_HELP, border=True)
+        m2.metric("Segment", str(row["segment"]), help=SEGMENT_HELP, border=True)
+        m3.metric("Country", str(row["country_name"]), help=COUNTRY_HELP, border=True)
+        m4.metric("Confidence", f'{row["classification_confidence"]:.0%}', help=CONF_HELP, border=True)
+        m5.metric("Peak exploit prob.", f"{max_epss:.0%}", help=EPSS_HELP, border=True)
 
         with st.expander(f"Score breakdown ({int(row['score'])} points)"):
             breakdown = pd.DataFrame(score_breakdown(row), columns=["Signal", "Points"])
@@ -208,17 +246,22 @@ def render_detail(domain: str) -> None:
 
         notable = interpret_tech(tech)
         if industry or notable or tech or emails:
-            with st.expander("Firmographics (extracted from exposed services)"):
-                if industry:
-                    st.markdown(f"**Industry:** {industry}")
+            with st.expander("Firmographics & fit (extracted from exposed services)", expanded=True):
+                bits = [f"**{org_name}**" if org_name else None,
+                        f"industry: {industry}" if industry else None]
+                head = "  ·  ".join(b for b in bits if b)
+                if head:
+                    st.markdown(head)
                 if notable:
-                    st.markdown("**Notable exposure:** " + " · ".join(notable))
+                    st.markdown("**Notable exposure — why they're a fit:**")
+                    for label, angle in notable:
+                        st.markdown(f"- **{label}** — {angle}")
                 if tech:
-                    st.markdown("**Technology footprint:** " + ", ".join(tech))
+                    st.caption("Technology footprint: " + ", ".join(tech))
                 if emails:
-                    st.markdown("**Contact emails:** " + ", ".join(emails))
+                    st.caption("Contact emails (regex): " + ", ".join(emails))
 
-        with st.expander("Buying signals", expanded=True):
+        with st.expander("Targeting signals", expanded=True):
             for reason in row["reasons"]:
                 st.markdown(f"- {reason}")
 
@@ -247,15 +290,24 @@ detail_slot = st.container()
 
 # --- Prospect list: click any row to open its detail (appears above) ---------
 st.subheader(f"Prospects ({len(view)})")
-st.caption("Click a row to open a company — its detail appears above.")
+lc, rc = st.columns([1, 1])
+lc.caption("Click a row to open a company.")
+rc.markdown(
+    "<div style='text-align:right'><small>"
+    "<span style='background:rgba(220,60,60,0.55);padding:0 8px;border-radius:3px'>&nbsp;</span> "
+    "active compromise &nbsp; "
+    "<span style='background:rgba(230,160,30,0.55);padding:0 8px;border-radius:3px'>&nbsp;</span> "
+    "actively-exploited (KEV)</small></div>",
+    unsafe_allow_html=True,
+)
 
 cols = ["domain", "org_name", "segment", "country_name", "score", "kev_count",
         "cve_count", "reasons", "has_breach", "has_kev"]
-table = view[cols].reset_index(drop=True)
+table = cast("pd.DataFrame", view[cols]).reset_index(drop=True)
 table["company"] = table["org_name"].where(table["org_name"].notna(), table["domain"])
 table["reasons"] = table["reasons"].apply(lambda r: "  •  ".join(list(r)))  # list -> readable cell
-table = table[["company", "domain", "segment", "country_name", "score", "kev_count",
-               "cve_count", "reasons", "org_name", "has_breach", "has_kev"]]
+table = cast("pd.DataFrame", table[["company", "domain", "segment", "country_name", "score",
+             "kev_count", "cve_count", "reasons", "org_name", "has_breach", "has_kev"]])
 
 gb = GridOptionsBuilder.from_dataframe(table)
 gb.configure_selection("single")  # click a row to select it (no checkbox)
@@ -282,11 +334,14 @@ gb.configure_grid_options(getRowStyle=JsCode("""
 # bigger, more legible type + a slightly softer row shade
 GRID_CSS = {
     ".ag-root-wrapper": {"border": "none"},
-    ".ag-cell": {"font-size": "15px", "display": "flex", "align-items": "center"},
+    ".ag-cell": {"font-size": "15px", "display": "flex", "align-items": "center",
+                 "border-right": "1px solid rgba(255,255,255,0.06)"},  # column separators
+    ".ag-header-cell": {"border-right": "1px solid rgba(255,255,255,0.08)"},
     ".ag-header-cell-text": {"font-size": "14px", "font-weight": "600"},
     ".ag-header-cell-label": {"justify-content": "center"},  # center header labels
     ".ag-row": {"background-color": "rgba(255,255,255,0.015)"},
-    ".ag-row-hover": {"background-color": "rgba(255,255,255,0.06) !important"},
+    # hover = distinct blue so it never blends with the red/amber signal tints
+    ".ag-row-hover": {"background-color": "rgba(76,139,245,0.28) !important"},
 }
 # fill more of the window: show up to ~15 rows, then the grid scrolls
 grid_height = 44 + 40 * min(max(len(table), 1), 15)

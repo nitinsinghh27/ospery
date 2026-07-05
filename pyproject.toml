@@ -21,6 +21,14 @@ dependencies = [
 module_name = "osprey.orchestration.definitions"
 code_location_name = "osprey"
 
+[tool.pyright]
+# Basic is the right mode for a pandas + Streamlit + untyped-3rd-party (st_aggrid) app:
+# strict floods with reportUnknownMemberType/MissingTypeStubs noise from libraries we
+# don't control, without catching real bugs. Basic still checks our contracts
+# (Pydantic, signatures, None-safety). Pins IDE (Pylance) and CLI to the same mode.
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+
 [tool.ruff]
 line-length = 100
 
