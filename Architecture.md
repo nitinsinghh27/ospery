@@ -9,55 +9,17 @@ For the *why* (business problem, prospecting methodology, competitive landscape)
 
 ## 1. Data flow (medallion)
 
-```mermaid
-flowchart TD
-    SRC[Shodan dump<br/>.json.zst · ~9.2M services]
-    KEV[(CISA KEV<br/>fetch_kev)]
-    EPSS[(FIRST EPSS<br/>fetch_epss)]
-    CC[(country_codes<br/>dbt seed)]
+![Osprey — end-to-end pipeline (LLD)](imgs/Architecture_Diagram.png)
 
-    subgraph B [BRONZE]
-      BR[bronze.shodan_scans<br/>raw · one row per service]
-    end
-    subgraph S [SILVER]
-      SC[silver_company_candidates<br/>clean · per-company · scored<br/>KEV/EPSS-aware · max_epss]
-    end
-    subgraph E1 [LLM ENRICHMENT — entity labels]
-      EL[enrichment.entity_labels<br/>business/infra + segment<br/>rules-first · cached · guardrails]
-    end
-    subgraph G1 [GOLD — core]
-      GC[gold_companies<br/>ranked prospects + reasons]
-      GS[gold_company_services<br/>per-company drill-down]
-    end
-    subgraph E2 [LLM ENRICHMENT — firmographics + pitch]
-      PROF[enrichment.company_profile<br/>org/industry/tech Sonnet + emails regex]
-      PITCH[enrichment.company_pitch<br/>CVE+KEV+EPSS+org grounded · Sonnet]
-    end
-    subgraph G2 [GOLD — serving]
-      GP[gold_prospects<br/>= companies + profile + pitch]
-    end
-    APP[Streamlit app<br/>reads gold only · no live LLM]
+Colour key: **layer** (source / bronze / silver / gold) and **who does the work** —
+**white = Python/dbt rules**, **light green = LLM calls**, **dark green = LLM-generated
+cached tables**, pink = serving DB, purple = app. The LLM runs in only three spots
+(Haiku entity classification, Sonnet pitch, Sonnet firmographic extraction); everything
+else is deterministic rules + dbt.
 
-    SRC -->|Python streaming<br/>ingest| BR
-    BR -->|dbt| SC
-    KEV --> SC
-    EPSS --> SC
-    SC -->|top-N by score| EL
-    SC --> GC
-    EL --> GC
-    CC --> GC
-    GC --> GS
-    GC -. banners / certs .-> PROF
-    GS -. CVEs + KEV + EPSS .-> PITCH
-    GC --> GP
-    PROF --> GP
-    PITCH --> GP
-    GP --> APP
-```
-
-*The pitch/profile steps read `gold_companies`/`gold_company_services` and write to
-`enrichment`; a downstream `gold_prospects` model joins them back — so the app never
-reads `enrichment` directly and there is no build cycle.*
+*Cycle note: the pitch/profile steps read `gold_companies`/`gold_company_services` and
+write to `enrichment`; a downstream `gold_prospects` model joins them back — so the app
+never reads `enrichment` directly and there is no build cycle.*
 
 **Key invariants:** (1) the LLM runs only during offline enrichment builds — the app
 reads **cached, materialized gold** tables, so the demo is deterministic and shareable

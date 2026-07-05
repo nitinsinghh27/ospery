@@ -54,18 +54,14 @@ extraction, grounded pitches — all cached) → **Gold** (ranked prospect marts
 join in silver. The app reads only cached tables — it never calls the LLM live, so
 the demo is deterministic and shareable with no API key.
 
-```mermaid
-flowchart LR
-    A[Shodan scans<br/>.json.zst] --> B[Bronze<br/>raw services]
-    B --> C[Silver<br/>company candidates<br/>+ KEV/EPSS score]
-    C --> D[LLM enrichment<br/>labels · firmographics · pitches<br/>cached]
-    D --> E[Gold<br/>gold_prospects]
-    E --> F[Streamlit app]
-    K[(CISA KEV)] --> C
-    P[(FIRST EPSS)] --> C
-```
+![Osprey — end-to-end pipeline (LLD)](imgs/Architecture_Diagram.png)
 
-Full detail, LLD diagram, and design trade-offs: [Architecture.md](Architecture.md).
+*Colour-coded by layer (bronze/silver/gold) and by who does the work — **white =
+Python/dbt rules**, **light green = LLM calls**, **dark green = LLM-generated cached
+tables**. LLM runs in just three spots (Haiku classify, Sonnet pitch, Sonnet
+firmographics); the bulk is deterministic.*
+
+Design trade-offs and the component/contract spec: [Architecture.md](Architecture.md).
 
 ## Stack
 
