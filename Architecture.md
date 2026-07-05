@@ -189,8 +189,11 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   exploit probability) — land as `reference.*` dbt sources that silver joins, so
   "exploited in the wild" / "97% exploit-likely" (not just "a CVE exists") drive
   ranking and the pitch. The connector + reference-data pattern the role wants. An
-  honest finding: in this exposure-heavy data EPSS≥0.5 is near-universal (weak score
-  discriminator), so it's used for the pitch/display, not forced into the score.
+  honest, **SQL-backed** finding
+  ([`kev_epss_analysis.sql`](data/analysis/kev_epss_analysis.sql)): among prospects
+  with a CVE, **96% peak at EPSS≥0.5** (94% at ≥0.9) — near-universal, so EPSS is a
+  weak *ranking* input. Decision: EPSS drives the pitch/display, **not** the score;
+  KEV (86.6% coverage, but authoritative + binary) stays in the score (+30).
 - **Single-writer warehouse.** Steps run in dependency order; the app connects
   read-only. (Prod: a real warehouse removes this constraint.)
 - **Transparency over black-box.** The lead score is an explainable additive formula,
