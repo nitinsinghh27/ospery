@@ -114,6 +114,15 @@ parsed from Shodan's own fingerprints (`cpe23`/`product`/`http_server`/tags); su
 as an "AI/ML exposed" KPI, a Technology filter, a detail tech-profile section, and
 AI/ICS targeting reasons. SQL-backed in `data/analysis/tech_signals.sql`.
 
+**v3.1 added:** a **structured pitch (v5)** — a scannable *What we found / Why it matters
+/ Across their stack / Suggested opening* brief, tech-grounded with a **competitive-
+displacement** angle when a rival security appliance is detected; **per-service
+technologies** on `gold_company_services` (cpe-derived); and an **app dashboard redesign**
+— clickable Security-signals / Technology chip filters, a richer prospect table (Total
+Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies), and a company
+detail with importance-ordered stat tiles + a Score-breakdown bar chart +
+Products/Technologies/Transport charts + a per-company Technologies distribution.
+
 **Backlog:** NVD/CVSS severity ranking (rate-limited API), Firmable contacts join,
 firmographic ICP filters, recurring ingestion (freshness), CSV/CRM export. See
 [Architecture.md](Architecture.md#8-honest-limitations--roadmap-v2).

@@ -139,6 +139,12 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
 - **LLM as a production system, not a toy.** Versioned prompts, labelled evals,
   confidence gating + deterministic guardrails, cached/idempotent outputs, grounded
   (never-invented) CVE citations.
+- **Structured, grounded outreach pitch (`prompts.py` v5).** Each prospect's pitch is a
+  scannable brief — *What we found / Why it matters / Across their stack / Suggested
+  opening* — grounded in real CVEs (KEV/EPSS-tagged) **and** the deterministic tech
+  profile, so it can open with a **competitive-displacement** angle when a rival security
+  appliance is detected ("we noticed you're running FortiWeb"). Sonnet, cached; the app
+  reads the frozen pitch and renders it as markdown.
 - **Observability from day one.** Every LLM call is traced (`osprey/llm/trace.py`) with
   prompt version, model, token usage, cost, latency, and success — append-only JSONL,
   thread-safe under the concurrent runner. `python -m osprey.llm.trace` reports

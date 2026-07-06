@@ -88,12 +88,14 @@ Same production discipline as the labels: versioned prompt, batched + concurrent
 cached, idempotent — the app reads the frozen pitch, never the LLM.
 
 ```
-gold.gold_companies  (segment, country, score, confidence, reasons)
+gold.gold_companies  (segment, country, score, confidence, reasons, tech_names)
 gold.gold_company_services  (product, version, REAL vulns per service)
-        │  build a grounded descriptor per company
-        │  (signals + "product version → actual CVEs", newest first, capped)
+        │  build a grounded descriptor per company (signals + "product version →
+        │  actual CVEs" newest-first capped + detected technologies + a
+        │  competitor_appliance flag when a rival security product is fingerprinted)
         ▼
-   LLM (Sonnet) → 3-4 sentence pitch, segment-tailored, non-alarmist,
+   LLM (Sonnet) → STRUCTURED brief: What we found / Why it matters /
+                  Across their stack / Suggested opening — grounded, non-alarmist,
                   positions the vendor's offering (config: VENDOR_PITCH_CONTEXT)
         ▼
    upsert → enrichment.company_pitch  (PK domain+prompt_version → re-run skips)
@@ -112,11 +114,20 @@ model. A hard prompt rule forbids adding any CVE/version not in the input, so ev
 cited CVE is verifiable. CVEs are ranked and tagged with real exploitation status —
 `[KEV]` (CISA actively-exploited) and `[EPSS x%]` (FIRST exploit probability) — so the
 pitch leads with what actually matters; at most two are cited, then "among others".
-Org/industry (from firmographics) let it address the company by name.
+Org/industry (from firmographics) let it address the company by name, and the
+deterministic **tech profile** (detected technologies + a competitor security appliance)
+lets it open with a **competitive-displacement** angle — the highest-value technographic
+play — when a rival product is present.
+
+**Format (v5):** a scannable brief with four labelled parts — **What we found** (the lead
+observation) / **Why it matters** (KEV/EPSS/score severity) / **Across their stack**
+(other signals + tech, incl. a competitor appliance) / **Suggested opening** (a
+ready-to-send line). The app renders it as markdown.
 
 **Model:** Sonnet (`PITCH_MODEL`) — noticeably more consultative prose than Haiku.
-**Result (`v4`):** every prospect gets a cached pitch grounded in real CVEs + KEV/EPSS
-+ firmographics. Bump `PITCH_PROMPT_VERSION` to re-generate on a wording change.
+**Result (`v5`):** every prospect gets a cached, structured pitch grounded in real CVEs
++ KEV/EPSS + firmographics + tech profile. Bump `PITCH_PROMPT_VERSION` to re-generate on
+a wording change.
 
 ---
 

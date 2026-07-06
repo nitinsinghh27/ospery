@@ -14,27 +14,30 @@ Code: [`app/app.py`](../app/app.py) · run: `uv run streamlit run app/app.py`.
 
 | Area | Content |
 |---|---|
-| **KPIs** | Prospects · actively-exploited (KEV) · actively-compromised · total CVEs · countries |
-| **Sidebar filters** | Segment · **Region** (ANZ/APAC/EMEA/Americas territory) · Country · **Well-enriched only** · Signal type · Min score · Domain search — **cascading** (no dead options) |
-| **Prospect list** | Clickable **AgGrid** table by lead score — **Company** (extracted org), domain, segment, country, score, **KEV**, #CVEs, top reasons. **Actively-compromised rows tinted red, KEV-exposed amber.** Click a row → detail above. |
-| **Company detail** | Score / segment / country / confidence / **peak exploit prob. (EPSS)**, **Score breakdown**, **Firmographics** (industry, **notable exposure** = interpreted tech, footprint, emails), **Buying signals**, **Suggested outreach pitch** (KEV/EPSS/org-grounded), **View exposed surface**, **Contacts (via Firmable)** |
-| **Region breakdown** | Prospects-by-region chart (sales territory view) |
+| **Filters** | Clickable **region chart** (ANZ/APAC/EMEA/Americas territory, with a country count) · **Segment** · **Country** · **Company** search · **Security-signals chips** (KEV, CVEs, DB exposed, EOL, self-signed, VPN, IoT, compromise) · **Technology chips** (web server, database, AI/ML, ICS/OT, DevOps…). Chips are **count-labelled and click-to-filter** — the landscape *is* the filter; everything **cascades**. |
+| **Prospect list** | Clickable **AgGrid** table by lead score — **Company** (extracted org, falls back to domain) · Segment · Country · Score · **Total Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies**. Emphasized header, centered cells. Click a row → detail above. |
+| **Company detail** | Importance-ordered **stat tiles** (Lead Score · KEV · CVEs · Peak EPSS · Total Services / Exposed IPs · Segment · Country · Distinct Technologies · Confidence) · **Score-breakdown bar chart** · **Products / Technologies bars + Transport donut** · per-company **Technologies distribution** · **Company Profile & Signals** (why-they're-a-fit incl. a competitive-displacement angle, targeting signals, tech footprint, emails) · **structured outreach pitch (v5)** rendered as markdown · **View Exposed Surface** (per-service technologies + CVEs) · Contacts (via Firmable) |
 
 ## 2. Rep workflow
 
-Filter to my region/segment → scan the red (compromised) / amber (KEV) rows → open a
-top company → read buying signals + the pitch (cites real actively-exploited CVEs) → call.
+Filter to my territory/segment → narrow with the **Security-signals / Technology chips**
+(e.g. "KEV + runs a competitor firewall") → open a top company → read the profile,
+*why they're a fit*, and the structured pitch (cites real actively-exploited CVEs and,
+where present, a displacement angle) → call.
 
 ## 3. Key UI decisions
 
 - **Clickable table = AgGrid.** Streamlit's native options don't fit: `LinkColumn`
   opens a new tab; `st.dataframe(on_select=…)` forces a selection-indicator column.
   AgGrid gives same-tab, click-any-row, no extra column. Cost: one dependency.
+- **Filters as count-labelled chips.** Security signals and technologies render as
+  clickable chips showing how many prospects carry each — the distribution and the
+  filter are the same control, so a rep sees the landscape and narrows it in one place.
+- **Score breakdown = bar chart.** The additive score is shown as a per-signal bar chart
+  (mirrors the SQL formula) so a rep sees exactly what drives it — kills the "why is 1
+  CVE worth 102?" confusion (the points come from the *other* signals).
 - **Country names** come from a dbt **seed** (`reference.country_codes`, ISO-3166),
   joined in gold — reference data as version-controlled seed, not hard-coded.
-- **Score breakdown** mirrors the SQL scoring formula so a rep can see exactly why a
-  score is what it is (kills the "why is 1 CVE worth 102?" confusion — the points
-  come from the *other* signals).
 - **Suggested pitch** is pre-generated + cached (see [Stage 7](Stage7_LLMEnrichment.md));
   the app never calls the LLM live, so the demo is shareable with no API key.
 

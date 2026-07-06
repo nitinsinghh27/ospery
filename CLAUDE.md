@@ -82,6 +82,14 @@ stack, infra/CDN/cloud, DB, **exposed AI/ML**, ICS/OT); surfaced in gold + app
 (AI/ML KPI, Technology filter, tech-profile detail, AI/ICS reasons). The
 **technographic layer** for ICP fit + competitive displacement. SQL-backed:
 `data/analysis/tech_signals.sql`.
+**v3.1 highlights:** **structured pitch v5** — a scannable brief (What we found / Why
+it matters / Across their stack / Suggested opening), tech-grounded with a **competitive-
+displacement** angle when a rival security appliance is detected; **per-service
+technologies** on `gold_company_services` (cpe-derived, fuller than `product`); **app
+dashboard redesign** — clickable Security-signals / Technology chip filters, prospect
+table with Total Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies,
+company detail with importance-ordered stat tiles + Score-breakdown bar chart +
+Products/Technologies bars + Transport donut + per-company Technologies distribution.
 **Backlog:** CVSS/NVD severity (rate-limited API), contact data (via Firmable),
 firmographic ICP, recurring ingestion, CSV/CRM export, chat, CSM.
 

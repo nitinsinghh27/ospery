@@ -10,7 +10,7 @@ per-company **drill-down**, with technical signals translated into sales languag
 | Model | Materialization | Grain | What |
 |---|---|---|---|
 | `gold.gold_companies` | table | one company | Ranked prospects: score, segment, country, region, signals (incl. **KEV/EPSS**), **reasons** |
-| `gold.gold_company_services` | view | one service | Every exposed service of a prospect (detail-page drill-down) |
+| `gold.gold_company_services` | view | one service | Every exposed service of a prospect (detail-page drill-down), incl. per-service **`technologies`** (cpe-derived — fuller than `product`) |
 | `gold.gold_prospects` | table | one company | **Serving model** the app reads: `gold_companies` + cached firmographics (`company_profile`) + pitch (`company_pitch`), joined by dbt |
 
 Code: [`transform/models/gold/`](../transform/models/gold). The pitch/profile enrichers
