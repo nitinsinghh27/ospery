@@ -75,6 +75,13 @@ Streamlit app (hosted on Streamlit Cloud) -> LLM observability/traces -> Dagster
 to ~3,973** (wider entity classification); **richer pitch v4** (KEV/EPSS/org-grounded);
 app: company column, red/amber row-marking, tech-interpretation, region (ANZ/APAC/EMEA/
 Americas) territory filter, peak-EPSS, well-enriched filter.
+**v3 highlights:** **deterministic technology extraction** (`silver_company_tech`,
+NO LLM) — parses Shodan's own fingerprints (`cpe23`/`product`/`http_server`) + tags
+(`cloud`/`cdn`/`database`/`ai`/`ics`/`devops`) into a per-company tech profile (web
+stack, infra/CDN/cloud, DB, **exposed AI/ML**, ICS/OT); surfaced in gold + app
+(AI/ML KPI, Technology filter, tech-profile detail, AI/ICS reasons). The
+**technographic layer** for ICP fit + competitive displacement. SQL-backed:
+`data/analysis/tech_signals.sql`.
 **Backlog:** CVSS/NVD severity (rate-limited API), contact data (via Firmable),
 firmographic ICP, recurring ingestion, CSV/CRM export, chat, CSM.
 

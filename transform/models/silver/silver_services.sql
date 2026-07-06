@@ -15,8 +15,12 @@ select
     city,
     product,
     version,
+    cpe23,
     tags,
     vulns,
-    ssl_cert_subject
+    ssl_cert_subject,
+    http_server,
+    http_title,
+    banner
 from {{ source('bronze', 'shodan_scans') }}
 where not list_contains(tags, 'honeypot')

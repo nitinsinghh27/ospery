@@ -79,6 +79,7 @@ osprey/                       # Python package (platform + thin pipeline steps)
     definitions.py            #   Dagster assets wrapping the pipeline steps
 transform/                    # dbt project (SQL only; NOT a Python package)
   models/silver/ · gold/      #   the medallion SQL + tests (schema.yml)
+    silver_company_tech.sql   #     deterministic technology profile (no LLM)
   seeds/country_codes.csv     #   reference data (ISO country names)
 app/app.py                    # Streamlit dashboard (reads gold + cached pitches)
 data/serving/                 # small committed serving DB (for hosting)
@@ -156,6 +157,16 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   with a CVE, **96% peak at EPSS≥0.5** (94% at ≥0.9) — near-universal, so EPSS is a
   weak *ranking* input. Decision: EPSS drives the pitch/display, **not** the score;
   KEV (86.6% coverage, but authoritative + binary) stays in the score (+30).
+- **Deterministic technology extraction (no LLM).** Shodan already fingerprints
+  technologies (`product`, `http_server`, `cpe23`) and tags services
+  (`cloud`/`cdn`/`database`/`ai`/`ics`/`devops`); `silver_company_tech` parses these
+  into a per-company **tech profile** — at zero LLM cost, so it scales to all 500k
+  candidates, not just the enriched head. This is the **technographic layer** that
+  B2B prospecting stacks on top of firmographics: it powers ICP fit, **competitive
+  displacement** (detecting a rival's appliance in the environment — the highest-value
+  technographic play, since most B2B software buys are replacements), and a net-new
+  **exposed-AI/ML** trigger. SQL-backed in
+  [`data/analysis/tech_signals.sql`](data/analysis/tech_signals.sql).
 - **Single-writer warehouse.** Steps run in dependency order; the app connects
   read-only. (Prod: a real warehouse removes this constraint.)
 - **Transparency over black-box.** The lead score is an explainable additive formula,
@@ -173,8 +184,9 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   leads the reasons; **FIRST EPSS** (exploit probability) is carried per prospect
   (peak) for the pitch + display. **CVSS (NVD)** severity is v2 — its per-CVE API is
   rate-limited, impractical for thousands of CVEs without a bulk pull.
-- **Firmographics:** basic org/industry/tech now **extracted from banners** (sparse —
-  ~32% get an org name); deeper firmographic ICP + **contacts via Firmable** is v2.
+- **Firmographics:** technology profile is now **deterministic** (`silver_company_tech`,
+  full coverage); org/industry are LLM-extracted from banners (sparse — ~49% get an
+  org name). Deeper firmographic ICP (size/revenue) + **contacts via Firmable** is next.
 - **Freshness:** a single-day scan slice; production needs recurring ingestion.
 - **Score weights** are a heuristic prior, not calibrated on conversion data.
 - **Ethical framing:** exposure ≠ certainty; outreach language stays "we noticed",

@@ -16,6 +16,9 @@ row to open its detail, filter by region / segment / signal, and read the ground
 - **What it does:** detects internet-facing exposures (CVEs, exposed databases,
   end-of-life software, weak certs, VPN/IoT, malware/C2), resolves them to real
   companies, ranks by a transparent lead score, and drafts a grounded sales pitch.
+- **Technographic targeting:** a **deterministic technology profile** (web stack,
+  infra/CDN/cloud, databases, **exposed AI/ML tooling**, ICS/OT — no LLM, from Shodan's
+  own fingerprints) powers ICP filters and competitive-displacement plays.
 - **Why it works:** for a cyber vendor, an exposure is a *trigger event* — a timely,
   specific reason to reach out. See [docs/ProblemAndApproach.md](docs/ProblemAndApproach.md).
 
@@ -104,6 +107,12 @@ probability) feeds, **LLM firmographic extraction** from banners (org / industry
 tech, with eval), prospect universe expanded to **~3,973**, richer KEV/EPSS/org-grounded
 pitches (v4), and a redesigned app (company column, red/amber row-marking, region
 territory filter, clickable-legend filters).
+
+**v3 added:** a **deterministic technology profile** (`silver_company_tech`, no LLM) —
+web stack, infra/CDN/cloud, databases, DevOps, **exposed AI/ML tooling**, ICS/OT —
+parsed from Shodan's own fingerprints (`cpe23`/`product`/`http_server`/tags); surfaced
+as an "AI/ML exposed" KPI, a Technology filter, a detail tech-profile section, and
+AI/ICS targeting reasons. SQL-backed in `data/analysis/tech_signals.sql`.
 
 **Backlog:** NVD/CVSS severity ranking (rate-limited API), Firmable contacts join,
 firmographic ICP filters, recurring ingestion (freshness), CSV/CRM export. See

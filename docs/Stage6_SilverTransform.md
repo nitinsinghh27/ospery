@@ -41,6 +41,7 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
 |---|---|---|---|
 | `silver.silver_services` | **view** (no storage — a filtered projection) | one scanned service | 9,102,783 |
 | `silver.silver_company_candidates` | **table** (small aggregate) | one company (domain) | 503,856 |
+| `silver.silver_company_tech` | **table** (tech profile) | one company (domain) | 505,987 |
 
 - **`silver_services`** — drops `honeypot` decoys (94,240) and keeps only the
   columns Silver needs. A view, so zero storage cost.
@@ -50,6 +51,15 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
   the **CISA KEV** and **FIRST EPSS** reference feeds for `kev_count` / `has_kev` /
   `max_epss`, applies the **deterministic classifier** (`hosts >= 1000 OR
   infra-keyword → infra`, excluded), and computes the **KEV-aware lead score**.
+- **`silver_company_tech`** — a **deterministic technology profile** per company
+  (**no LLM**). Shodan already fingerprints technologies (`product`, `http_server`,
+  `cpe23`) and tags services (`cloud`/`cdn`/`database`/`ai`/`ics`/`devops`…); this
+  model parses and categorises them into per-company flags (`has_ai_ml`, `has_ics`,
+  `has_devops`, `has_cdn`, `has_cloud`, `has_database_tech`, `has_cms`, …), a named
+  `tech_names` list (from `cpe23`), and a readable `tech_categories` list. Powers
+  technographic ICP targeting, competitive-displacement plays, and the **exposed
+  AI/ML** trigger. Numbers backed by
+  [`data/analysis/tech_signals.sql`](../data/analysis/tech_signals.sql).
 
 ---
 

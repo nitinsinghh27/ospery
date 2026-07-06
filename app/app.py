@@ -51,6 +51,12 @@ SEGMENT_HELP = ("Segment (commercial / education / government / nonprofit / othe
                 "resolved deterministically by rule.")
 COUNTRY_HELP = ("Country of the company's most-common exposed host (Shodan geo-IP), "
                 "mapped to a full name via the ISO-3166 reference seed.")
+AI_HELP = ("Companies exposing AI/ML tooling (Jupyter, Ollama, MLflow, vLLM, vector DBs, "
+           "etc.) — detected deterministically from Shodan fingerprints/tags. A fresh, "
+           "high-value trigger: an AI attack surface most vendors aren't yet targeting.")
+TECH_HELP = ("Technology categories detected from Shodan's own fingerprints (product, "
+             "http_server, cpe23) and tags — deterministic, no LLM. Use for technographic "
+             "ICP targeting and competitive-displacement plays.")
 
 st.set_page_config(page_title="Osprey — Sales Intelligence", layout="wide")
 
@@ -172,7 +178,7 @@ if "region" in work.columns:
         work = work.loc[work["region"].isin(picked)]
     st.caption("Click region bars to filter — click several to combine, click again to remove.")
 
-f1, f2, f3, f4 = st.columns([2, 2, 2, 3])
+f1, f2, f3, f4, f5 = st.columns([2, 2, 2, 2, 3])
 segments = f1.multiselect("Segment", sorted(work["segment"].unique()))
 if segments:
     work = work.loc[work["segment"].isin(segments)]
@@ -184,7 +190,12 @@ present_signals = [label for label, col in SIGNALS.items()
 chosen_signals = f3.multiselect("Must have signal", present_signals)
 for label in chosen_signals:
     work = work.loc[work[SIGNALS[label]] == 1]
-search = f4.text_input("Search company / domain")
+# Technology (technographic) filter — from the deterministic tech profile
+tech_universe = sorted({c for cats in work["tech_categories"] for c in _lst(cats)})
+chosen_tech = f4.multiselect("Technology", tech_universe, help=TECH_HELP)
+for t in chosen_tech:
+    work = work.loc[work["tech_categories"].apply(lambda cats: t in _lst(cats))]
+search = f5.text_input("Search company / domain")
 if search:
     hit = (work["domain"].str.contains(search, case=False, na=False)
            | work["org_name"].fillna("").str.contains(search, case=False))
@@ -209,14 +220,16 @@ if _masks:
 view = cast("pd.DataFrame", work)
 
 with kpi_slot:  # KPIs reflect the filtered view — rendered as small cards
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Prospects", len(view), border=True)
     c2.metric("Actively exploited (KEV)", int(cast("pd.Series", view["has_kev"]).sum()),
               help=KEV_HELP, border=True)
     c3.metric("Actively compromised", int(cast("pd.Series", view["has_breach"]).sum()),
               help="Companies with signs of active compromise (malware / C2).", border=True)
-    c4.metric("Total CVEs", int(cast("pd.Series", view["cve_count"]).sum()), help=CVE_HELP, border=True)
-    c5.metric("Countries", int(cast("pd.Series", view["country_name"]).nunique()), border=True)
+    c4.metric("AI/ML exposed", int(cast("pd.Series", view["has_ai_ml"]).sum()),
+              help=AI_HELP, border=True)
+    c5.metric("Total CVEs", int(cast("pd.Series", view["cve_count"]).sum()), help=CVE_HELP, border=True)
+    c6.metric("Countries", int(cast("pd.Series", view["country_name"]).nunique()), border=True)
 
 st.divider()
 
@@ -282,10 +295,18 @@ def render_detail(domain: str) -> None:
                     st.markdown("**Notable exposure — why they're a fit:**")
                     for label, angle in notable:
                         st.markdown(f"- **{label}** — {angle}")
-                if tech:
-                    st.caption("Technology footprint: " + ", ".join(tech))
                 if emails:
                     st.caption("Contact emails (regex): " + ", ".join(emails))
+
+        # deterministic technology profile (from Shodan fingerprints, no LLM)
+        tech_cats = _lst(row["tech_categories"])
+        tech_detected = _lst(row["tech_names"]) or tech  # fall back to LLM tech_stack
+        if tech_cats or tech_detected:
+            with st.expander("Technology profile (detected)", expanded=True):
+                if tech_cats:
+                    st.markdown("**Categories:** " + "  ·  ".join(tech_cats))
+                if tech_detected:
+                    st.caption("Detected technologies: " + ", ".join(tech_detected[:25]))
 
         with st.expander("Targeting signals", expanded=True):
             for reason in row["reasons"]:
