@@ -9,6 +9,11 @@ select
     s.transport,
     s.product,
     s.version,
+    -- per-service technologies from Shodan's cpe fingerprint (product token) — fuller
+    -- than `product` alone (captures jquery / php / bootstrap etc.)
+    coalesce(list_distinct(list_filter(
+        list_transform(s.cpe23, x -> split_part(x, ':', 5)),
+        v -> v is not null and v <> '' and v <> '*')), []::varchar[])  as technologies,
     s.tags,
     s.vulns,
     s.country_code,

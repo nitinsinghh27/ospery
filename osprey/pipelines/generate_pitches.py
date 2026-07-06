@@ -96,9 +96,25 @@ def _epss_scores(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     return {str(c): float(e) for c, e in rows}
 
 
+# rival security-vendor product tokens (from the tech fingerprint) -> a displacement
+# angle: the highest-value technographic signal for a security vendor's outreach.
+_SECURITY_APPLIANCES = (
+    "fortiweb", "fortios", "fortigate", "fortinet", "fortiproxy", "sonicwall", "pan-os",
+    "paloalto", "sophos", "watchguard", "checkpoint", "check_point", "barracuda",
+    "pfsense", "netscaler", "citrix", "cisco_asa",
+)
+
+
+def _security_appliance(techs: list[str]) -> str | None:
+    """Return the detected competitor security-appliance product(s), if any."""
+    hits = [t for t in techs if any(k in t.lower() for k in _SECURITY_APPLIANCES)]
+    return ", ".join(sorted(set(hits))[:2]) if hits else None
+
+
 def _descriptor(row: tuple[object, ...], cve_snippet: str) -> str:
     """Serialize one gold_prospects row into a compact line for the pitch prompt."""
-    domain, segment, country, score, confidence, reasons, org_name, industry = row
+    (domain, segment, country, score, confidence, reasons, org_name, industry,
+     tech_names) = row
     items = cast("list[object]", reasons) if isinstance(reasons, (list, tuple)) else []
     signals = "; ".join(str(r) for r in items) if items else "no strong signals"
     line = (f"domain={domain} | org={org_name or '?'} | industry={industry or '?'} | "
@@ -106,6 +122,12 @@ def _descriptor(row: tuple[object, ...], cve_snippet: str) -> str:
             f"confidence={confidence} | signals: {signals}")
     if cve_snippet:
         line += f" | notable_cves: {cve_snippet}"
+    techs = [str(t) for t in cast("list[object]", tech_names)] if isinstance(tech_names, (list, tuple)) else []
+    if techs:
+        line += f" | technologies: {', '.join(techs[:10])}"
+    appliance = _security_appliance(techs)
+    if appliance:
+        line += f" | competitor_appliance: {appliance}"
     return line
 
 
@@ -119,7 +141,7 @@ def generate_pitches(
     already = cached_pitch_domains(con, version)
 
     sql = ("SELECT domain, segment, country_name, score, classification_confidence, reasons, "
-           "org_name, industry FROM gold.gold_prospects ORDER BY score DESC")
+           "org_name, industry, tech_names FROM gold.gold_prospects ORDER BY score DESC")
     if limit is not None:
         sql += f" LIMIT {int(limit)}"
     companies = con.execute(sql).fetchall()
