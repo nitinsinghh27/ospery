@@ -190,11 +190,14 @@ present_signals = [label for label, col in SIGNALS.items()
 chosen_signals = f3.multiselect("Must have signal", present_signals)
 for label in chosen_signals:
     work = work.loc[work[SIGNALS[label]] == 1]
-# Technology (technographic) filter — from the deterministic tech profile
-tech_universe = sorted({c for cats in work["tech_categories"] for c in _lst(cats)})
-chosen_tech = f4.multiselect("Technology", tech_universe, help=TECH_HELP)
-for t in chosen_tech:
-    work = work.loc[work["tech_categories"].apply(lambda cats: t in _lst(cats))]
+# Technology (technographic) filter — from the deterministic tech profile.
+# Guarded so a stale serving DB (missing the v3 tech columns) degrades gracefully
+# instead of crashing the app.
+if "tech_categories" in work.columns:
+    tech_universe = sorted({c for cats in work["tech_categories"] for c in _lst(cats)})
+    chosen_tech = f4.multiselect("Technology", tech_universe, help=TECH_HELP)
+    for t in chosen_tech:
+        work = work.loc[work["tech_categories"].apply(lambda cats: t in _lst(cats))]
 search = f5.text_input("Search company / domain")
 if search:
     hit = (work["domain"].str.contains(search, case=False, na=False)
@@ -226,7 +229,8 @@ with kpi_slot:  # KPIs reflect the filtered view — rendered as small cards
               help=KEV_HELP, border=True)
     c3.metric("Actively compromised", int(cast("pd.Series", view["has_breach"]).sum()),
               help="Companies with signs of active compromise (malware / C2).", border=True)
-    c4.metric("AI/ML exposed", int(cast("pd.Series", view["has_ai_ml"]).sum()),
+    c4.metric("AI/ML exposed",
+              int(cast("pd.Series", view["has_ai_ml"]).sum()) if "has_ai_ml" in view.columns else 0,
               help=AI_HELP, border=True)
     c5.metric("Total CVEs", int(cast("pd.Series", view["cve_count"]).sum()), help=CVE_HELP, border=True)
     c6.metric("Countries", int(cast("pd.Series", view["country_name"]).nunique()), border=True)
@@ -298,9 +302,10 @@ def render_detail(domain: str) -> None:
                 if emails:
                     st.caption("Contact emails (regex): " + ", ".join(emails))
 
-        # deterministic technology profile (from Shodan fingerprints, no LLM)
-        tech_cats = _lst(row["tech_categories"])
-        tech_detected = _lst(row["tech_names"]) or tech  # fall back to LLM tech_stack
+        # deterministic technology profile (from Shodan fingerprints, no LLM).
+        # row.get(): tolerate a stale serving DB without the v3 tech columns.
+        tech_cats = _lst(row.get("tech_categories"))
+        tech_detected = _lst(row.get("tech_names")) or tech  # fall back to LLM tech_stack
         if tech_cats or tech_detected:
             with st.expander("Technology profile (detected)", expanded=True):
                 if tech_cats:
