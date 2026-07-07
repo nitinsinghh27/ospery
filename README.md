@@ -87,15 +87,20 @@ Architecture.md project architecture, diagrams, roadmap
 
 ## Screenshots
 
-Ranked prospect list — click any row to open its detail; filter with the region chart
-and the count-labelled signal / technology / exposed-service / admin-panel chips:
+Ranked prospect list — click any row to open its detail; filter with the popover facet
+bar (Territory · Hosting · Security · Technology · Exposure), each count-labelled:
 
 ![Prospect list](imgs/prospects.png)
 
-Company detail — transparent score breakdown, firmographics extracted from banners,
-and a grounded outreach pitch citing only real CVEs (KEV/EPSS-tagged):
+Company detail — a deterministic **Sales Prospect Intelligence** brief: risk level,
+why-now triggers, grouped attack surface, top risk signals, and ready-to-use talking points:
 
-![Grounded pitch + exposed surface](imgs/pitch-surface.png)
+![Sales Prospect Intelligence brief](imgs/sales-brief.png)
+
+The exposed-surface drill-down — every internet-facing service with its product, version,
+technologies, server, network owner and CVEs:
+
+![Exposed surface](imgs/pitch-surface.png)
 
 ## Status
 

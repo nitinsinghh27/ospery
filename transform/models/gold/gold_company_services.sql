@@ -14,6 +14,8 @@ select
     coalesce(list_distinct(list_filter(
         list_transform(s.cpe23, x -> split_part(x, ':', 5)),
         v -> v is not null and v <> '' and v <> '*')), []::varchar[])  as technologies,
+    s.http_server,
+    s.isp,
     s.tags,
     s.vulns,
     s.country_code,

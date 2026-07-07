@@ -82,8 +82,8 @@ def load_services(domain: str) -> pd.DataFrame:
     ).fetchone()
     tech_sel = ", technologies" if has_tech and has_tech[0] else ""
     df = con.execute(
-        f"SELECT ip_str, port, transport, product, version{tech_sel}, tags, vulns, "
-        "country_code, scanned_at "
+        f"SELECT ip_str, port, transport, product, version{tech_sel}, http_server, isp, "
+        "tags, vulns, country_code, scanned_at "
         "FROM gold.gold_company_services WHERE domain = ? "
         "ORDER BY (product IS NULL), (len(vulns) = 0), port",  # informative rows first
         [domain],
@@ -572,21 +572,6 @@ def render_detail(domain: str) -> None:
         # top risks, talking points) — the transformed "Company Profile & Signals".
         with st.expander("Sales Prospect Intelligence", expanded=True):
             render_sales_narrative(row)
-            # concise technographic context (footprint, not noise)
-            net_owner = _txt(row.get("hosting_network"))
-            city_count = int(row.get("city_count") or 0)
-            ctx = []
-            if net_owner:
-                ctx.append(f"network owner: {net_owner}")
-            if city_count > 1:
-                ctx.append(f"hosts across {city_count} cities")
-            server_prod = _lst(row.get("server_products"))
-            if server_prod:
-                ctx.append("server: " + ", ".join(server_prod))
-            if tech_detected:
-                ctx.append("stack: " + ", ".join(tech_detected[:12]))
-            if ctx:
-                st.caption("Footprint — " + "  ·  ".join(ctx))
             if emails:
                 st.caption("Contact emails (regex): " + ", ".join(emails))
 
@@ -612,8 +597,9 @@ def render_detail(domain: str) -> None:
             disp["scanned_at"] = pd.to_datetime(disp["scanned_at"]).dt.strftime("%Y-%m-%d")
         disp = disp.rename(columns={
             "ip_str": "IP", "port": "Port", "transport": "Transport", "product": "Product",
-            "version": "Version", "technologies": "Technologies", "tags": "Tags",
-            "vulns": "CVEs", "country_code": "Country", "scanned_at": "Scanned"})
+            "version": "Version", "technologies": "Technologies", "http_server": "Server",
+            "isp": "Network owner", "tags": "Tags", "vulns": "CVEs",
+            "country_code": "Country", "scanned_at": "Scanned"})
         st.dataframe(disp, hide_index=True, width="stretch", height=320)
 
         st.info("**Contacts** — join this company (by domain) to Firmable's people "

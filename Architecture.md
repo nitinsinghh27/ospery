@@ -34,10 +34,11 @@ Transparent additive scoring — every point traced back to a signal (§7):
 
 ![Company detail — score breakdown](imgs/detail-scoring.png)
 
-Firmographics extracted from banners + a grounded outreach pitch that cites only
-real, verifiable CVEs (KEV/EPSS-tagged):
+A deterministic **Sales Prospect Intelligence** brief (executive summary, business-relevant
+themes, why-now triggers, top risk signals, talking points) — plus a grounded outreach pitch
+and an always-on exposed-surface table (per-service tech, server, network owner, CVEs):
 
-![Firmographics & targeting signals](imgs/firmographics-signals.png)
+![Sales Prospect Intelligence brief](imgs/sales-brief.png)
 ![Grounded pitch + exposed surface](imgs/pitch-surface.png)
 
 ## 2. Stack & why
