@@ -90,6 +90,12 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
   embedded/IoT webservers, TR-069/CWMP router mgmt — plus new tech categories (Virtualization,
   Proxy/gateway, App server, Embedded/IoT, Router mgmt). 981 prospects gain a named server
   product. The "measured, chose rules over LLM" call is recorded in `extraction_v4.sql`.
+  **`vulnerable_products` — the low-level displacement hook:** each prospect's own
+  `product@version` strings that carry real CVEs, ranked by CVE count (e.g. "MySQL 5.5.31 —
+  CVE-2023-22028 (+357)", "Apache httpd 2.4.6 — CVE-2024-3566 (+171)"). Not the high-level
+  "Database" category but the exact software + version + its vulnerabilities — the signal a
+  rep actually pitches on ("we noticed you run X vN, which carries CVE-…"). 5,884 prospects
+  carry ≥1; CVEs are the service's own `vulns`, never invented.
 
 ---
 

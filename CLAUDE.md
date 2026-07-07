@@ -107,6 +107,11 @@ data, the more targeting signal you find":**
   *after measuring* an LLM tech-extractor and finding it not worth it (company coverage 99.9%,
   banner residual = protocol noise, named tech is in the Server header → parseable). "Rules
   first, LLM for the residual" — and the residual turned out deterministic. In `extraction_v4.sql`.
+- **`vulnerable_products` + target-list export** — low-level, version-specific displacement:
+  each prospect's `product@version` that carries real CVEs, ranked (e.g. "MySQL 5.5.31 —
+  CVE-2023-22028 (+357)"; 5,884 prospects) — surfaced in the brief as the pitch hook. The
+  prospect list has a **Download target list (CSV)** button that exports the filtered set
+  (company · product@version+CVEs · exposure · reasons) — a campaign-ready sourcing deliverable.
 - **Infrastructure is a segment, not noise** — gold keeps `entity_class in (business, infra)`;
   the app shows the full universe by default (~6,654) with a **Business-Only Prospects** toggle
   for the "see past the hosting layer" view (~3,973).

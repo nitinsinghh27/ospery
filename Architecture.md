@@ -212,6 +212,14 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   Tomcat, Kestrel, F5 BIG-IP, embedded/IoT webservers, TR-069/CWMP router mgmt) into named
   products + new tech categories — 981 prospects gain one, at zero LLM cost and full scale.
   The measurement and decision are in [`extraction_v4.sql`](data/analysis/extraction_v4.sql).
+- **Version-specific displacement + a target-list deliverable.** Beyond high-level categories,
+  `vulnerable_products` pairs each prospect's exact `product@version` with its *real* CVEs
+  (never invented — the service's own `vulns`), ranked by count — the low-level hook a rep
+  pitches on ("we noticed you run MySQL 5.5.31, which carries CVE-2023-22028"). 5,884 prospects
+  carry one; it leads the sales brief. The prospect list then exports the *currently-filtered*
+  set as a campaign-ready **CSV target list** (company · product@version+CVEs · exposure ·
+  reasons) — so "who runs competitor X vN?" becomes an account list handed to sales, not just
+  a search. This is the sourcing role's actual output: a targeted, evidenced list.
 - **Infrastructure is a segment, not noise (v4).** The entity classifier still labels
   hosting/ISP as `infra`, but gold now keeps `entity_class in (business, infra)` and tags
   each row. The app shows the **full universe by default (~6,654)** with a **Business-Only

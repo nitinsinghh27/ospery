@@ -473,6 +473,14 @@ def render_sales_narrative(row: Any) -> None:
         for _, risk, sev, ev, impact in cand[:5]:
             st.markdown(f"- **{risk}**  ·  _{sev}_  \n  Evidence: {ev}  \n  Business impact: {impact}")
 
+    # Vulnerable software — the low-level, version-specific displacement hook
+    # ("you run MySQL 8.0.12 which carries CVE-…"). Product@version + real CVEs, ranked.
+    vuln_prod = _lst(row.get("vulnerable_products"))
+    if vuln_prod:
+        st.markdown("#### Vulnerable Software (version-specific)")
+        for vp in vuln_prod[:6]:
+            st.markdown(f"- {vp}")
+
     # Sales Talking Points — 3 outreach angles from the top themes
     talk = [_TALK[t[0]] for t in themes if t[0] in _TALK][:3]
     if talk:
@@ -610,9 +618,27 @@ def render_detail(domain: str) -> None:
 detail_slot = st.container()
 
 # --- Prospect list: click any row to open its detail (appears above) ---------
-st.subheader(f"Prospects ({len(view)})")
-st.caption("Click a row to open a company. Filter with the region bars / Security "
-           "signals / Technology chips above.")
+hd_l, hd_r = st.columns([3, 1])
+hd_l.subheader(f"Prospects ({len(view)})")
+hd_l.caption("Click a row to open a company. Filter with the facet bar above — then export "
+             "the filtered set as a ready target list.")
+# Displacement / target-list export: whatever the rep has filtered to (e.g. a specific
+# competitor tech + version) downloads as a campaign-ready CSV — the sourcing deliverable.
+_exp = cast("pd.DataFrame", view).copy()
+for _c in ("vulnerable_products", "exposed_services", "exposed_panels", "server_products",
+           "tech_categories", "hosting_providers", "reasons"):
+    if _c in _exp.columns:
+        _exp[_c] = _exp[_c].apply(lambda v: "; ".join(_lst(v)))
+_exp_cols = [c for c in ["domain", "org_name", "segment", "country_name", "region", "score",
+             "kev_count", "cve_count", "vulnerable_products", "exposed_services",
+             "exposed_panels", "server_products", "tech_categories", "hosting_providers",
+             "reasons"] if c in _exp.columns]
+hd_r.download_button(
+    "Download target list (CSV)",
+    cast("pd.DataFrame", _exp[_exp_cols]).to_csv(index=False).encode("utf-8"),
+    "osprey_target_list.csv", "text/csv", use_container_width=True,
+    help="Export the currently-filtered prospects — company, product@version + CVEs, "
+         "exposure and reasons — as a campaign-ready list for sales / CRM.")
 
 cols = ["domain", "org_name", "segment", "country_name", "score", "services", "hosts",
         "kev_count", "cve_count",

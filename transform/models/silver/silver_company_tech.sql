@@ -276,6 +276,31 @@ server_by_domain as (
                 else null end),
             x -> x is not null)) as server_categories
     from server_scans group by domain
+),
+
+-- product@version paired with its REAL CVEs — the low-level "you run X vN → CVE-Y" signal:
+-- the sharpest displacement hook ("we noticed you run MySQL 8.0.12, which carries CVE-…").
+-- One string per vulnerable versioned product, ranked by CVE count. CVEs are the service's
+-- own `vulns` — never invented.
+pv_vulns as (
+    select unnest(domains) as domain,
+           product || ' ' || version as pv,
+           len(vulns) as ncve,
+           vulns[1] as lead_cve
+    from {{ ref('silver_services') }}
+    where product is not null and version is not null and version <> '' and len(vulns) > 0
+),
+pv_by_domain as (
+    select domain, pv, max(ncve) as ncve, arg_max(lead_cve, ncve) as lead_cve
+    from pv_vulns group by domain, pv
+),
+vuln_products_by_domain as (
+    select domain,
+        array_agg(
+            pv || ' — ' || lead_cve || case when ncve > 1 then ' (+' || (ncve - 1) || ')' else '' end
+            order by ncve desc
+        ) as vulnerable_products
+    from pv_by_domain group by domain
 )
 
 select
@@ -299,6 +324,7 @@ select
     coalesce(s.city_count, 0)                                 as city_count,
     coalesce(s.ssl_issuers, [])                               as ssl_issuers,
     coalesce(sv.server_products, [])                          as server_products,
+    coalesce(vp.vulnerable_products[1:8], [])                 as vulnerable_products,
     -- human-readable category list (for filtering + the detail view); the server-header
     -- categories (Virtualization / Proxy / App server / Embedded / Router mgmt) are merged in.
     list_distinct(list_concat(
@@ -325,3 +351,4 @@ left join versioned_by_domain v on v.domain = p.domain
 left join hosting_by_domain h   on h.domain = p.domain
 left join surface_by_domain s   on s.domain = p.domain
 left join server_by_domain sv   on sv.domain = p.domain
+left join vuln_products_by_domain vp on vp.domain = p.domain

@@ -129,7 +129,9 @@ detail with importance-ordered stat tiles + a Score-breakdown bar chart +
 Products/Technologies/Transport charts + a per-company Technologies distribution.
 
 **v4 added** — a deep, deterministic mining pass over the dataset (no LLM), on the thesis
-that *the more you mine the scan data, the more targeting signal you find*:
+that *the more you mine the scan data, the more targeting signal you find* — down to
+**version-specific displacement** ("we noticed you run MySQL 5.5.31, which carries CVE-…")
+and a **downloadable target list** (filter to a competitor tech → campaign-ready CSV):
 
 - **Versioned technology** (`product@version`) + **legacy/EOL detection** — who still runs
   Python 2.x / MySQL 5.x / Apache 2.2 (from Shodan's version fingerprints + eol tags).
