@@ -168,6 +168,44 @@ from (select d, count(distinct city) nc from s
       where d in (select domain from gold.gold_companies) group by 1);
 -- OUTPUT: prospects=6,654 | avg_cities=4.27 | max_cities=289 (a size / distribution proxy)
 
+
+-- ============================================================================
+-- "Should we add an LLM tech-extractor?" — MEASURED FIRST, then decided NO.
+-- ----------------------------------------------------------------------------
+-- Before building an LLM enricher to pull technologies out of unstructured text, we
+-- measured the residual it would actually work on. The evidence said: not worth it — the
+-- named tech lives in the `http_server` header (deterministically parseable), and the
+-- banner residual is protocol noise. So we EXTENDED THE DETERMINISTIC PARSER instead.
+-- ============================================================================
+
+-- Q11 — Company-level tech coverage is already near-total (cpe) -----------------
+select count(*) prospects, count(*) filter (where len(tech_names) > 0) with_tech,
+       round(100.0 * count(*) filter (where len(tech_names) > 0) / count(*), 1) pct
+from gold.gold_prospects;
+-- OUTPUT: 6,654 | 6,649 | 99.9%  => an LLM adds ~nothing at the company level.
+
+-- Q12 — The banner residual (services with NO cpe/product) is protocol noise ----
+with s as (select unnest(domains) d, banner from bronze.shodan_scans
+           where banner is not null and len(cpe23) = 0 and product is null)
+select left(regexp_replace(banner, '[\n\r]+', ' '), 40) snippet, count(*) n
+from s where d in (select domain from gold.gold_companies) group by 1 order by n desc limit 8;
+-- OUTPUT: empty / Dovecot+IMAP+POP3 handshakes / "HTTP/1.1 401|404|400 ..." / SSL errors /
+--   binary \xc8… — i.e. protocol banners & status lines, NOT technology names to extract.
+
+-- Q13 — The real residual is the http_server long tail — and it's parseable -----
+with s as (select distinct lower(http_server) hs from bronze.shodan_scans
+           where http_server is not null and http_server <> '')
+select count(*) distinct_http_server,
+       count(*) filter (where not regexp_matches(hs,
+         'nginx|apache|httpd|iis|openresty|tengine|litespeed|caddy|lighttpd|cloudflare')) outside_keyword_list
+from s;
+-- OUTPUT: 10,143 distinct | 6,480 outside the keyword list — but they are NAMED products in
+--   the header (pve-api-daemon→Proxmox, squid→Squid, apache-coyote→Tomcat, kestrel→.NET,
+--   bigip→F5, goahead-webs/boa/gsoap→embedded IoT, tr069/cwmp→router mgmt). Deterministic.
+-- DECISION: no LLM. `silver_company_tech.server_products` parses these from http_server —
+--   981 prospects gain a named server product (Embedded 334, Proxmox 267, Squid 216,
+--   TR-069 210, Tomcat 84, Kestrel 72, SonicWall 68, F5 BIG-IP 67…). Zero LLM, full-scale.
+
 -- ----------------------------------------------------------------------------
 -- COLUMN AUDIT (all 24 bronze columns): mined vs explored vs untouched.
 --   mined:    port, org, isp, domains, country_code, product, version, cpe23, tags,

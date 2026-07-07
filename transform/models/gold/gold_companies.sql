@@ -48,6 +48,7 @@ select
     coalesce(t.has_admin_panel, 0)           as has_admin_panel,
     coalesce(t.city_count, 0)                as city_count,
     coalesce(t.ssl_issuers, []::varchar[])         as ssl_issuers,
+    coalesce(t.server_products, []::varchar[])     as server_products,
     coalesce(t.tech_categories, []::varchar[])     as tech_categories,
 
     -- reason translation: technical signals -> plain sales language (for the rep).

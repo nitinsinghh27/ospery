@@ -202,6 +202,15 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   **24-column bronze audit** (mined / explored / n/a) is recorded in
   [`data/analysis/extraction_v4.sql`](data/analysis/extraction_v4.sql) so extraction coverage
   is provable, not assumed.
+- **Measured the LLM, chose rules (the "rules first" principle, evidenced).** Before adding an
+  LLM tech-extractor for the residual, we *measured* it: company tech coverage is already 99.9%
+  (cpe), the no-cpe banner residual is protocol noise (handshakes / HTTP status lines / binary),
+  and the genuinely-named missed tech sits in the `Server:` header — 6,480 distinct values
+  outside the keyword list, all deterministically parseable. So instead of an LLM we extended
+  the deterministic parser: `server_products` maps the http_server long tail (Proxmox, Squid,
+  Tomcat, Kestrel, F5 BIG-IP, embedded/IoT webservers, TR-069/CWMP router mgmt) into named
+  products + new tech categories — 981 prospects gain one, at zero LLM cost and full scale.
+  The measurement and decision are in [`extraction_v4.sql`](data/analysis/extraction_v4.sql).
 - **Infrastructure is a segment, not noise (v4).** The entity classifier still labels
   hosting/ISP as `infra`, but gold now keeps `entity_class in (business, infra)` and tags
   each row. The app shows the **full universe by default (~6,654)** with a **Business-Only

@@ -102,6 +102,11 @@ data, the more targeting signal you find":**
   (cPanel/WHM 524, Synology, Plesk, 3CX, firewall/router logins, DevOps consoles — 1,366).
 - **Hosting/infra** (`hosting_providers` normalized cloud/CDN + `hosting_network` = dominant
   ISP/AS owner, ~never blank); `city_count` = geographic-spread size proxy; `ssl_issuers` = CA.
+- **`server_products`** — the `http_server` long tail parsed deterministically (Proxmox, Squid,
+  Tomcat, Kestrel, F5 BIG-IP, embedded/IoT, TR-069 router mgmt) + new tech categories. Decided
+  *after measuring* an LLM tech-extractor and finding it not worth it (company coverage 99.9%,
+  banner residual = protocol noise, named tech is in the Server header → parseable). "Rules
+  first, LLM for the residual" — and the residual turned out deterministic. In `extraction_v4.sql`.
 - **Infrastructure is a segment, not noise** — gold keeps `entity_class in (business, infra)`;
   the app shows the full universe by default (~6,654) with a **Business-Only Prospects** toggle
   for the "see past the hosting layer" view (~3,973).

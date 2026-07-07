@@ -223,6 +223,59 @@ surface_by_domain as (
         -- there is no org to mine here; dropped rather than shipped empty.
         list_distinct(list_filter(array_agg(ssl_cert_issuer), x -> x is not null)) as ssl_issuers
     from surface_scans group by domain
+),
+
+-- HTTP `Server:` header -> named products/categories the cpe fingerprint misses. Measured
+-- as the *real* residual (extraction_v4.sql): ~6.5k distinct http_server values sit outside
+-- the cpe/keyword vocabulary, and they are deterministically parseable — an LLM was measured
+-- and NOT justified here (the banner residual is protocol noise; the tech is in this header).
+server_scans as (
+    select unnest(domains) as domain,
+           lower(split_part(split_part(http_server, '/', 1), ' ', 1)) as srv
+    from {{ ref('silver_services') }}
+    where http_server is not null and http_server <> ''
+),
+server_by_domain as (
+    select
+        domain,
+        list_distinct(list_filter(array_agg(
+            case
+                when srv like '%pve-api%' or srv like '%proxmox%'    then 'Proxmox'
+                when srv like '%squid%'                              then 'Squid'
+                when srv = 'apache-coyote' or srv like '%tomcat%'    then 'Apache Tomcat'
+                when srv like '%jetty%'                              then 'Jetty'
+                when srv like '%kestrel%'                            then 'Kestrel (.NET)'
+                when srv like '%uvicorn%'                            then 'Uvicorn (Python)'
+                when srv like '%gunicorn%'                           then 'Gunicorn (Python)'
+                when srv like '%werkzeug%'                           then 'Werkzeug (Python)'
+                when srv like '%bigip%' or srv like '%big-ip%'       then 'F5 BIG-IP'
+                when srv like '%sonicwall%'                          then 'SonicWall'
+                when srv like '%miniserv%'                           then 'Webmin'
+                when srv like '%haproxy%'                            then 'HAProxy'
+                when srv like '%varnish%'                            then 'Varnish'
+                when srv like '%traefik%'                            then 'Traefik'
+                when srv like '%proxygen%'                           then 'Proxygen'
+                when srv in ('goahead-webs','boa','mini_httpd','thttpd','webs','alphapd',
+                             'app-webs','gsoap','dnvrs-webs')        then 'Embedded webserver'
+                when srv like '%tr069%' or srv like '%cwmp%' or srv like '%ccspcwmp%'
+                     or srv like '%cpe-server%'                      then 'TR-069 / CWMP router mgmt'
+                else null end),
+            x -> x is not null)) as server_products,
+        list_distinct(list_filter(array_agg(
+            case
+                when srv like '%pve-api%' or srv like '%proxmox%'    then 'Virtualization'
+                when srv like '%squid%' or srv like '%haproxy%' or srv like '%varnish%'
+                     or srv like '%traefik%' or srv like '%proxygen%' then 'Proxy / gateway'
+                when srv = 'apache-coyote' or srv like '%tomcat%' or srv like '%jetty%'
+                     or srv like '%kestrel%' or srv like '%uvicorn%' or srv like '%gunicorn%'
+                     or srv like '%werkzeug%'                        then 'App server'
+                when srv in ('goahead-webs','boa','mini_httpd','thttpd','webs','alphapd',
+                             'app-webs','gsoap','dnvrs-webs')        then 'Embedded / IoT device'
+                when srv like '%tr069%' or srv like '%cwmp%' or srv like '%ccspcwmp%'
+                     or srv like '%cpe-server%'                      then 'Router / CPE mgmt'
+                else null end),
+            x -> x is not null)) as server_categories
+    from server_scans group by domain
 )
 
 select
@@ -245,24 +298,30 @@ select
     (len(coalesce(s.exposed_panels, [])) > 0)::int            as has_admin_panel,
     coalesce(s.city_count, 0)                                 as city_count,
     coalesce(s.ssl_issuers, [])                               as ssl_issuers,
-    -- human-readable category list (for filtering + the detail view)
-    list_filter([
-        case when p.has_ai_ml = 1        then 'AI/ML tooling' end,
-        case when p.has_devops = 1       then 'DevOps / observability' end,
-        case when p.has_ics = 1          then 'ICS / OT' end,
-        case when len(coalesce(v.legacy_tech, [])) > 0 then 'Legacy / EOL software' end,
-        case when p.has_database_tech = 1 then 'Database' end,
-        case when p.has_cms = 1          then 'CMS' end,
-        case when p.has_appstack = 1     then 'App framework / language' end,
-        case when p.has_mail = 1         then 'Mail server' end,
-        case when p.has_remote = 1       then 'Remote access' end,
-        case when p.has_vpn_tech = 1     then 'VPN' end,
-        case when p.has_webserver = 1    then 'Web server' end,
-        case when p.has_cdn = 1          then 'CDN / edge' end,
-        case when p.has_cloud = 1        then 'Cloud-hosted' end
-    ], x -> x is not null)                                    as tech_categories
+    coalesce(sv.server_products, [])                          as server_products,
+    -- human-readable category list (for filtering + the detail view); the server-header
+    -- categories (Virtualization / Proxy / App server / Embedded / Router mgmt) are merged in.
+    list_distinct(list_concat(
+        list_filter([
+            case when p.has_ai_ml = 1        then 'AI/ML tooling' end,
+            case when p.has_devops = 1       then 'DevOps / observability' end,
+            case when p.has_ics = 1          then 'ICS / OT' end,
+            case when len(coalesce(v.legacy_tech, [])) > 0 then 'Legacy / EOL software' end,
+            case when p.has_database_tech = 1 then 'Database' end,
+            case when p.has_cms = 1          then 'CMS' end,
+            case when p.has_appstack = 1     then 'App framework / language' end,
+            case when p.has_mail = 1         then 'Mail server' end,
+            case when p.has_remote = 1       then 'Remote access' end,
+            case when p.has_vpn_tech = 1     then 'VPN' end,
+            case when p.has_webserver = 1    then 'Web server' end,
+            case when p.has_cdn = 1          then 'CDN / edge' end,
+            case when p.has_cloud = 1        then 'Cloud-hosted' end
+        ], x -> x is not null),
+        coalesce(sv.server_categories, [])
+    ))                                                        as tech_categories
 from per_domain p
 left join tech_by_domain t     on t.domain = p.domain
 left join versioned_by_domain v on v.domain = p.domain
 left join hosting_by_domain h   on h.domain = p.domain
 left join surface_by_domain s   on s.domain = p.domain
+left join server_by_domain sv   on sv.domain = p.domain

@@ -82,6 +82,14 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
   cities the hosts sit in (avg 4.27, max 289), a rough size/distribution proxy. The `asn`
   column was **removed** as redundant (org/isp already carry the network owner) — a deliberate
   cleanup, not left as a dead column.
+  **`server_products` — the http_server long tail, measured then parsed (no LLM):** before
+  adding an LLM tech-extractor we measured its residual — company tech coverage is already
+  99.9% (cpe), the banner residual is protocol noise, and the genuinely-named missed tech
+  lives in the `Server:` header (6,480 distinct values outside the keyword list). So we parse
+  it deterministically: Proxmox, Squid, Apache Tomcat, Kestrel, F5 BIG-IP, Webmin,
+  embedded/IoT webservers, TR-069/CWMP router mgmt — plus new tech categories (Virtualization,
+  Proxy/gateway, App server, Embedded/IoT, Router mgmt). 981 prospects gain a named server
+  product. The "measured, chose rules over LLM" call is recorded in `extraction_v4.sql`.
 
 ---
 

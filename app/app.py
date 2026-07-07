@@ -203,7 +203,7 @@ with fbar[3]:
             def _tech_hit(r: Any) -> bool:
                 blob = " ".join(_lst(r["tech_names"]) + _lst(r["versioned_tech"])
                                 + _lst(r["legacy_tech"]) + _lst(r.get("exposed_services"))
-                                + _lst(r.get("exposed_panels"))).lower()
+                                + _lst(r.get("exposed_panels")) + _lst(r.get("server_products"))).lower()
                 return any(term in blob for term in terms)
 
             work = work.loc[work.apply(_tech_hit, axis=1)]
@@ -580,6 +580,9 @@ def render_detail(domain: str) -> None:
                 ctx.append(f"network owner: {net_owner}")
             if city_count > 1:
                 ctx.append(f"hosts across {city_count} cities")
+            server_prod = _lst(row.get("server_products"))
+            if server_prod:
+                ctx.append("server: " + ", ".join(server_prod))
             if tech_detected:
                 ctx.append("stack: " + ", ".join(tech_detected[:12]))
             if ctx:
