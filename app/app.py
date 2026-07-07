@@ -618,10 +618,6 @@ def render_detail(domain: str) -> None:
 detail_slot = st.container()
 
 # --- Prospect list: click any row to open its detail (appears above) ---------
-hd_l, hd_r = st.columns([3, 1])
-hd_l.subheader(f"Prospects ({len(view)})")
-hd_l.caption("Click a row to open a company. Filter with the facet bar above — then export "
-             "the filtered set as a ready target list.")
 # Displacement / target-list export: whatever the rep has filtered to (e.g. a specific
 # competitor tech + version) downloads as a campaign-ready CSV — the sourcing deliverable.
 _exp = cast("pd.DataFrame", view).copy()
@@ -633,12 +629,25 @@ _exp_cols = [c for c in ["domain", "org_name", "segment", "country_name", "regio
              "kev_count", "cve_count", "vulnerable_products", "exposed_services",
              "exposed_panels", "server_products", "tech_categories", "hosting_providers",
              "reasons"] if c in _exp.columns]
-hd_r.download_button(
-    "Download target list (CSV)",
-    cast("pd.DataFrame", _exp[_exp_cols]).to_csv(index=False).encode("utf-8"),
-    "osprey_target_list.csv", "text/csv", use_container_width=True,
-    help="Export the currently-filtered prospects — company, product@version + CVEs, "
-         "exposure and reasons — as a campaign-ready list for sales / CRM.")
+# Excel-green download button, right-aligned (above the table's right edge) via a right column
+st.markdown(
+    "<style>.st-key-dl_btn button{background-color:#217346 !important;color:#fff !important;"
+    "border:none !important;}"
+    ".st-key-dl_btn button:hover{background-color:#1a5c38 !important;color:#fff !important;}</style>",
+    unsafe_allow_html=True)
+# header (left) + download button (right), same row; button bottom-aligned + narrower
+_hc = st.columns([7.4, 1.0], vertical_alignment="bottom")
+with _hc[0]:
+    st.subheader(f"Prospects ({len(view)})")
+    st.caption("Click a row to open a company. Filter with the facet bar above — then export "
+               "the filtered set as a ready target list.")
+with _hc[1], st.container(key="dl_btn"):
+    st.download_button(
+        "Download CSV",
+        cast("pd.DataFrame", _exp[_exp_cols]).to_csv(index=False).encode("utf-8"),
+        "osprey_target_list.csv", "text/csv", use_container_width=True,
+        help="Export the currently-filtered prospects — company, product@version + CVEs, "
+             "exposure and reasons — as a campaign-ready target list for sales / CRM.")
 
 cols = ["domain", "org_name", "segment", "country_name", "score", "services", "hosts",
         "kev_count", "cve_count",
