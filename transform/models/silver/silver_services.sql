@@ -9,6 +9,7 @@ select
     transport,
     scanned_at,
     org,
+    isp,
     domains,
     hostnames,
     country_code,
@@ -19,6 +20,7 @@ select
     tags,
     vulns,
     ssl_cert_subject,
+    ssl_cert_issuer,
     http_server,
     http_title,
     banner

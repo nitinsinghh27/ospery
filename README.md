@@ -87,8 +87,8 @@ Architecture.md project architecture, diagrams, roadmap
 
 ## Screenshots
 
-Ranked prospect list — actively-compromised rows tinted red, KEV-exposed amber;
-click a row to open detail, or use the clickable legend / region chart to filter:
+Ranked prospect list — click any row to open its detail; filter with the region chart
+and the count-labelled signal / technology / exposed-service / admin-panel chips:
 
 ![Prospect list](imgs/prospects.png)
 
@@ -122,6 +122,27 @@ technologies** on `gold_company_services` (cpe-derived); and an **app dashboard 
 Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies), and a company
 detail with importance-ordered stat tiles + a Score-breakdown bar chart +
 Products/Technologies/Transport charts + a per-company Technologies distribution.
+
+**v4 added** — a deep, deterministic mining pass over the dataset (no LLM), on the thesis
+that *the more you mine the scan data, the more targeting signal you find*:
+
+- **Versioned technology** (`product@version`) + **legacy/EOL detection** — who still runs
+  Python 2.x / MySQL 5.x / Apache 2.2 (from Shodan's version fingerprints + eol tags).
+- **Technology / version search** — find prospects running a specific tech (mongodb, redis,
+  wordpress, `openssh 7`…), not just a broad category.
+- **Exposure surface from the port inventory** — **risky internet-facing services** (RDP,
+  SMB, Telnet, FTP, exposed databases, Kubernetes/Docker APIs) — the sharpest cyber trigger;
+  2,798 prospects expose ≥1.
+- **Exposed admin / control panels** from the HTTP page title — cPanel/WHM, Plesk, firewall &
+  router logins (MikroTik/pfSense/SonicWall/Fortinet), DevOps consoles — 1,366 prospects.
+- **Hosting / infrastructure** — normalized cloud/CDN provider + dominant network owner
+  (column + filter); plus a **geographic footprint** size proxy (distinct cities).
+- **Infrastructure as a segment** — gold keeps hosting/ISP providers too; the app shows the
+  full universe by default (~6,654) with a **Business-Only Prospects** toggle for the "see
+  past the hosting layer" view (~3,973).
+
+All click-to-filter, count-labelled, and cascading; backed by a **24-column data audit** in
+`data/analysis/extraction_v4.sql` (mined / explored / n/a — coverage is provable, not assumed).
 
 **Backlog:** NVD/CVSS severity ranking (rate-limited API), Firmable contacts join,
 firmographic ICP filters, recurring ingestion (freshness), CSV/CRM export. See

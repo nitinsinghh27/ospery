@@ -90,6 +90,26 @@ dashboard redesign** — clickable Security-signals / Technology chip filters, p
 table with Total Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies,
 company detail with importance-ordered stat tiles + Score-breakdown bar chart +
 Products/Technologies bars + Transport donut + per-company Technologies distribution.
+**v4 highlights — a deep deterministic extraction pass (no LLM), "the more you mine the scan
+data, the more targeting signal you find":**
+- **Versioned tech** (`product@version`) + **legacy/EOL detection** ("who runs Python 2.x /
+  MySQL 5.x / Apache 2.2?" — version-gated + Shodan's own eol tags).
+- **Searchable specific technologies** (mongodb/redis/wordpress… via a tech/version search).
+- **Exposure surface from the port inventory** — `exposed_services` + `has_rdp`/`has_telnet`/
+  `has_ftp`/`has_smb` (RDP/SMB/Telnet/FTP/exposed-DB/orchestration APIs, the sharpest cyber
+  trigger; 2,798 prospects expose ≥1).
+- **Exposed admin/control panels** from `http_title` — `exposed_panels` + `has_admin_panel`
+  (cPanel/WHM 524, Synology, Plesk, 3CX, firewall/router logins, DevOps consoles — 1,366).
+- **Hosting/infra** (`hosting_providers` normalized cloud/CDN + `hosting_network` = dominant
+  ISP/AS owner, ~never blank); `city_count` = geographic-spread size proxy; `ssl_issuers` = CA.
+- **Infrastructure is a segment, not noise** — gold keeps `entity_class in (business, infra)`;
+  the app shows the full universe by default (~6,654) with a **Business-Only Prospects** toggle
+  for the "see past the hosting layer" view (~3,973).
+- **Honest null result** recorded: cert-subject org (`O=`) not minable — prospect certs are
+  CN-only (0/97k); `asn` removed as redundant. A full **24-column bronze data audit** (mined /
+  explored / n/a) is embedded in `data/analysis/extraction_v4.sql` — coverage is provable.
+- Emphasis has shifted to **deterministic extraction breadth**; the LLM pitch/firmographics
+  are kept but de-emphasized. **This is all one release (v4)** — no v5/v6 sub-versions.
 **Backlog:** CVSS/NVD severity (rate-limited API), contact data (via Firmable),
 firmographic ICP, recurring ingestion, CSV/CRM export, chat, CSM.
 

@@ -14,16 +14,16 @@ Code: [`app/app.py`](../app/app.py) · run: `uv run streamlit run app/app.py`.
 
 | Area | Content |
 |---|---|
-| **Filters** | Clickable **region chart** (ANZ/APAC/EMEA/Americas territory, with a country count) · **Segment** · **Country** · **Company** search · **Security-signals chips** (KEV, CVEs, DB exposed, EOL, self-signed, VPN, IoT, compromise) · **Technology chips** (web server, database, AI/ML, ICS/OT, DevOps…). Chips are **count-labelled and click-to-filter** — the landscape *is* the filter; everything **cascades**. |
-| **Prospect list** | Clickable **AgGrid** table by lead score — **Company** (extracted org, falls back to domain) · Segment · Country · Score · **Total Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies**. Emphasized header, centered cells. Click a row → detail above. |
-| **Company detail** | Importance-ordered **stat tiles** (Lead Score · KEV · CVEs · Peak EPSS · Total Services / Exposed IPs · Segment · Country · Distinct Technologies · Confidence) · **Score-breakdown bar chart** · **Products / Technologies bars + Transport donut** · per-company **Technologies distribution** · **Company Profile & Signals** (why-they're-a-fit incl. a competitive-displacement angle, targeting signals, tech footprint, emails) · **structured outreach pitch (v5)** rendered as markdown · **View Exposed Surface** (per-service technologies + CVEs) · Contacts (via Firmable) |
+| **Filters** | A **Business-Only Prospects** toggle (off by default → the full universe incl. infrastructure/hosting; on = the "see past the hosting layer" view) · a clickable **region chart** (ANZ/APAC/EMEA/Americas territory, with a country count) sized to span both dropdown rows · **Segment** · **Country** · **Company** search, with a **Technology / Version Search** (find a specific tech — mongodb, `openssh 7`, `python 2` — across product names, versioned/legacy tech, exposed services & panels) and a **Hosting Provider** filter (AWS/Cloudflare/Hetzner…) directly beneath them · then count-labelled click-to-filter chip rows: **Security Signals** (KEV, CVEs, DB exposed, EOL, self-signed, VPN, IoT, compromise) · **Technology** (web server, database, AI/ML, ICS/OT, Legacy/EOL, DevOps…) · **Internet-Exposed Services** (RDP, SMB, Telnet, FTP, exposed databases, Kubernetes/Docker APIs — the sharpest cyber trigger, from the port inventory) · **Exposed Admin Panels** (cPanel/WHM, Plesk, firewall/router logins, DevOps consoles — from the HTTP title). The whole landscape (counts, chips) tracks the scope toggle — everything **cascades**. |
+| **Prospect list** | Clickable **AgGrid** table by lead score — **Company** (extracted org, falls back to domain) · Segment · Country · Score · **Total Services · Exposed IPs · KEV/CVEs · Security Signals · Technologies · Hosting** (normalized cloud/CDN, else the dominant network owner). Emphasized header, centered cells. Click a row → detail above. |
+| **Company detail** | Importance-ordered **stat tiles** (Lead Score · KEV · CVEs · Peak EPSS · Total Services / Exposed IPs · Segment · Country · Distinct Technologies · Confidence) · **Score-breakdown bar chart** · **Products / Technologies bars** (all entries, uniform width, in equal fixed-height **scrollable** panels) · per-company **Technologies distribution** · a **Sales Prospect Intelligence** brief (deterministic, no LLM — see §3) · the cached **structured outreach pitch** rendered as markdown · an always-on **Exposed Surface** table (IP · Port · Transport · Product · Version · Technologies · Tags · CVEs · Country · Scanned) · Contacts (via Firmable) |
 
 ## 2. Rep workflow
 
-Filter to my territory/segment → narrow with the **Security-signals / Technology chips**
-(e.g. "KEV + runs a competitor firewall") → open a top company → read the profile,
-*why they're a fit*, and the structured pitch (cites real actively-exploited CVEs and,
-where present, a displacement angle) → call.
+Filter to my territory/segment → narrow with the **Security-signals / exposed-service /
+admin-panel chips** (e.g. "KEV + RDP exposed", or "runs cPanel") → open a top company →
+read the **Sales Prospect Intelligence** brief (risk level, why-they're-a-fit themes, why-now
+triggers, top risks, ready-to-use talking points) → call.
 
 ## 3. Key UI decisions
 
@@ -36,6 +36,18 @@ where present, a displacement angle) → call.
 - **Score breakdown = bar chart.** The additive score is shown as a per-signal bar chart
   (mirrors the SQL formula) so a rep sees exactly what drives it — kills the "why is 1
   CVE worth 102?" confusion (the points come from the *other* signals).
+- **Sales Prospect Intelligence = a deterministic (no-LLM) narrative.** The detail's
+  headline section transforms the cached telemetry into a sales-ready brief — an
+  **Executive Summary** (risk level, priority score, outreach priority), **Why They're a
+  Fit** (findings grouped into business themes), **Why Now** (timing triggers), an
+  **Attack Surface Overview** (exposed services grouped, not dumped), **Top Risk Signals**
+  (top 5 by business impact), and **Sales Talking Points** (observation / risk / opener).
+  It's pure rules over the row's fields — every line traces to evidence, nothing is
+  invented, and a section is omitted when its evidence is absent. This is the primary
+  sales artefact; the LLM pitch is kept but de-emphasized.
+- **All entries, scrollable.** The Products / Technologies bars show *every* distinct
+  entry (uniform bar width) inside equal fixed-height scroll panels — a 50-technology
+  company scrolls instead of truncating, and the two panels stay the same size.
 - **Country names** come from a dbt **seed** (`reference.country_codes`, ISO-3166),
   joined in gold — reference data as version-controlled seed, not hard-coded.
 - **Suggested pitch** is pre-generated + cached (see [Stage 7](Stage7_LLMEnrichment.md));
@@ -54,5 +66,6 @@ where present, a displacement angle) → call.
 
 The full warehouse (~3 GB) is too big to deploy. For hosting we publish a small
 **serving DB** (`build_serving_db.py`) with just `gold.gold_prospects` +
-`gold.gold_company_services` — ~4 MB — and point the app at it (it auto-prefers the
-serving DB when present). Since the app reads only gold, this is a clean config swap.
+`gold.gold_company_services` — ~13 MB (grew from ~4 MB once infrastructure prospects and
+their many services were included) — and point the app at it (it auto-prefers the serving
+DB when present). Since the app reads only gold, this is a clean config swap.

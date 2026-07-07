@@ -82,7 +82,8 @@ def load_services(domain: str) -> pd.DataFrame:
     ).fetchone()
     tech_sel = ", technologies" if has_tech and has_tech[0] else ""
     df = con.execute(
-        f"SELECT ip_str, port, transport, product, version{tech_sel}, tags, vulns "
+        f"SELECT ip_str, port, transport, product, version{tech_sel}, tags, vulns, "
+        "country_code, scanned_at "
         "FROM gold.gold_company_services WHERE domain = ? "
         "ORDER BY (product IS NULL), (len(vulns) = 0), port",  # informative rows first
         [domain],
@@ -103,91 +104,6 @@ def _lst(v: object) -> list[str]:
     return [str(x) for x in cast("list[object]", v)]
 
 
-# Turn a raw tech list into sales-relevant "notable exposure" — common web servers
-# (nginx/Apache) tell a rep nothing; exposed cameras / NAS / remote-access do.
-# (keywords, label, one-line sales angle) — turns raw tech into what a rep can act on.
-NOTABLE_TECH: list[tuple[tuple[str, ...], str, str]] = [
-    (("hikvision", "dahua", "axis", "ip camera", "webcam", "nvr", "surveillance"),
-     "Exposed IP cameras / IoT", "consumer-grade IoT, weak perimeter — likely SMB"),
-    (("draytek", "mikrotik", "ubiquiti", "zyxel", "tp-link", "netgear", "router"),
-     "SMB network gear", "consumer/SMB edge hardware — under-managed network"),
-    (("sonicwall", "fortigate", "fortinet", "palo alto", "pfsense", "sophos", "watchguard"),
-     "Firewall / security appliance", "already has a security appliance — displacement play"),
-    (("winrm", "rdp", "remote desktop", "vnc", "teamviewer", "anydesk", "ssh"),
-     "Exposed remote access", "internet-facing admin access — lateral-movement risk"),
-    (("synology", "qnap", "truenas", "nas", "freenas"),
-     "Internet-exposed NAS / storage", "data-at-rest exposed to the internet"),
-    (("mysql", "postgres", "mongodb", "redis", "elasticsearch", "mssql", "couchdb", "mariadb"),
-     "Exposed database", "customer/business data reachable from the internet"),
-    (("openvpn", "pptp", "ipsec", "wireguard", "fortivpn", "globalprotect", "anyconnect"),
-     "VPN endpoint", "remote-workforce entry point — high-value target"),
-    (("exim", "postfix", "dovecot", "zimbra", "exchange", "smtp", "roundcube"),
-     "Mail server exposed", "self-hosted email — phishing / BEC surface"),
-    (("wordpress", "joomla", "drupal", "magento", "php"),
-     "Legacy web CMS/stack", "plugin-heavy CMS — frequent, easily-exploited CVEs"),
-    (("scada", "modbus", "niagara", "bacnet", "plc", "hmi"),
-     "Exposed OT / industrial control", "critical infrastructure exposure — high stakes"),
-]
-
-
-def interpret_tech(tech: list[str]) -> list[tuple[str, str]]:
-    """Map a raw tech stack to (category, sales angle) pairs (deduped, ordered)."""
-    low = " ".join(tech).lower()
-    return [(label, angle) for keywords, label, angle in NOTABLE_TECH
-            if any(k in low for k in keywords)]
-
-
-# Deterministic tech CATEGORIES -> the sales angle they imply (why the company is a
-# fit). High-signal categories only; the "stack context" ones (web server, CDN, cloud,
-# app framework) are common and carry no urgency — shown as footprint, not as an angle.
-CATEGORY_ANGLES: dict[str, str] = {
-    "AI/ML tooling": "exposed AI attack surface — net-new, few vendors target it yet",
-    "ICS / OT": "critical-infrastructure exposure — high-stakes, compliance-driven buyer",
-    "Database": "business / customer data reachable from the internet",
-    "Remote access": "internet-facing admin access — lateral-movement risk",
-    "VPN": "remote-workforce entry point — high-value target",
-    "Mail server": "self-hosted email — phishing / BEC surface",
-    "DevOps / observability": "exposed internal tooling — secrets / ops-maturity risk",
-    "CMS": "plugin-heavy CMS — frequent, easily-exploited CVEs",
-}
-_CAT_ORDER = list(CATEGORY_ANGLES.keys())
-# security-vendor product tokens (from cpe fingerprints) -> a competitive-displacement
-# play, the single highest-value technographic signal (most B2B security buys are
-# replacements — so "already runs a competitor" is a direct reason to call).
-SECURITY_APPLIANCE_TOKENS = (
-    "fortiweb", "fortios", "fortigate", "fortinet", "fortiproxy", "sonicwall", "pan-os",
-    "paloalto", "sophos", "watchguard", "checkpoint", "check_point", "barracuda",
-    "pfsense", "netscaler", "citrix", "cisco_asa",
-)
-
-
-# device-level labels from NOTABLE_TECH that the tech CATEGORIES don't already cover
-# (the rest — remote access, database, VPN, mail, firewall, OT, CMS — are categories
-# or the displacement play, so we skip them here to avoid duplicate angles).
-_DEVICE_ONLY = {"Exposed IP cameras / IoT", "SMB network gear",
-                "Internet-exposed NAS / storage"}
-
-
-def fit_angles(tech_cats: list[str], tech_detected: list[str]) -> list[tuple[str, str]]:
-    """Build a single ranked list of 'why they're a fit' sales angles from the
-    deterministic tech profile: competitive displacement first, then high-signal
-    category angles, then a few device-level specifics (IP cameras / NAS)."""
-    out: list[tuple[str, str]] = []
-    low = [t.lower() for t in tech_detected]
-    hits = sorted({t for t in low if any(k in t for k in SECURITY_APPLIANCE_TOKENS)})
-    if hits:
-        out.append(("Runs a security appliance",
-                    f"already uses {', '.join(hits[:3])} — competitive-displacement play "
-                    "(most security purchases are replacements)"))
-    for cat in _CAT_ORDER:
-        if cat in tech_cats:
-            out.append((cat, CATEGORY_ANGLES[cat]))
-    for label, angle in interpret_tech(tech_detected):
-        if label in _DEVICE_ONLY:
-            out.append((label, angle))
-    return out
-
-
 companies = load_companies()
 
 st.title("Osprey — Sales Intelligence")
@@ -201,15 +117,28 @@ st.markdown(  # center the KPI metrics
 
 # --- Filters: region distribution (left) + dropdowns side by side (right) ----------
 st.markdown("##### Filter Prospects")
-work = companies
-n_countries = int(companies["country_name"].nunique())
+# Scope toggle. Default shows the FULL universe (businesses + infrastructure / hosting
+# providers — the latter are themselves high-surface cybersecurity buyers). Flip
+# "Business-Only" for the "see past the hosting layer" view. The whole landscape (counts,
+# chips) tracks the scope via `book`.
+business_only = st.toggle(
+    "Business-Only Prospects", value=False,
+    help="On = only LLM-verified businesses (hosting/ISP demoted — the 'see past the "
+         "hosting layer' view). Off (default) = the full universe including "
+         "infrastructure & hosting providers.")
+book = (companies.loc[companies["entity_class"] == "business"]
+        if business_only and "entity_class" in companies.columns else companies)
+work = book
+n_countries = int(book["country_name"].nunique())
 
-fc = st.columns([1.9, 1.2, 1.2, 1.4])
-with fc[0]:
+# Left = clickable region distribution (sales territory); right = two tight rows of
+# dropdowns (Segment / Country / Company, then Technology / Hosting). The chart height is
+# tuned to span both rows so the two sides line up with no gap between them.
+left, right = st.columns([1.9, 3.8])
+with left:
     st.markdown(f"**Countries ({n_countries})**")
-    # Region: a clickable distribution (sales territory) — the top of the cascade
     if "region" in work.columns:
-        rc = companies["region"].value_counts().reset_index()
+        rc = book["region"].value_counts().reset_index()
         rc.columns = ["region", "count"]
         rtot = int(rc["count"].sum()) or 1
         rc["lab"] = (rc["count"].astype(str) + " ("
@@ -220,53 +149,110 @@ with fc[0]:
                     axis=alt.Axis(labelFontSize=12, labelOverlap=False)),
             x=alt.X("count:Q", title=None, axis=None,
                     scale=alt.Scale(domainMax=int(rc["count"].max()) * 1.45)))
-        bars = rbase.mark_bar(cornerRadiusEnd=4, height=18).encode(
+        bars = rbase.mark_bar(cornerRadiusEnd=4, height=26).encode(
             color=alt.condition(pick, alt.value("#4c8bf5"), alt.value("#39404d")),
             tooltip=[alt.Tooltip("region:N", title="Region"),
                      alt.Tooltip("count:Q", title="Prospects")]).add_params(pick)
         rtxt = rbase.mark_text(align="left", dx=6, size=11, color="#cfcfcf").encode(text="lab:N")
-        ev = cast("Any", st.altair_chart((bars + rtxt).properties(height=96),
+        ev = cast("Any", st.altair_chart((bars + rtxt).properties(height=150),
                                          on_select="rerun", use_container_width=True, key="region_chart"))
         picked = [d["region"] for d in (ev.selection.get("region_pick", []) if ev else [])]
         if picked:
             work = work.loc[work["region"].isin(picked)]
-with fc[1]:
-    segments = st.multiselect("Segment", sorted(work["segment"].unique()))
-    if segments:
-        work = work.loc[work["segment"].isin(segments)]
-with fc[2]:
-    countries = st.multiselect("Country", sorted(work["country_name"].dropna().unique()))
-    if countries:
-        work = work.loc[work["country_name"].isin(countries)]
-with fc[3]:
-    search = st.text_input("Company")
-    if search:
-        hit = (work["domain"].str.contains(search, case=False, na=False)
-               | work["org_name"].fillna("").str.contains(search, case=False))
-        work = work.loc[hit]
+with right:
+    r1 = st.columns([1.2, 1.2, 1.4])
+    with r1[0]:
+        segments = st.multiselect("Segment", sorted(work["segment"].unique()))
+        if segments:
+            work = work.loc[work["segment"].isin(segments)]
+    with r1[1]:
+        countries = st.multiselect("Country", sorted(work["country_name"].dropna().unique()))
+        if countries:
+            work = work.loc[work["country_name"].isin(countries)]
+    with r1[2]:
+        search = st.text_input("Company")
+        if search:
+            hit = (work["domain"].str.contains(search, case=False, na=False)
+                   | work["org_name"].fillna("").str.contains(search, case=False))
+            work = work.loc[hit]
+    r2 = st.columns([1.2, 1.2, 1.4])
+    with r2[0]:
+        tech_q = st.text_input(
+            "Technology / Version Search",
+            placeholder="e.g. mongodb, openssh 7, python 2",
+            help="Match a specific technology or version across the detected stack (product "
+                 "names, versioned tech, legacy/EOL labels, exposed services & panels). "
+                 "Comma-separate for OR.")
+        if tech_q and {"tech_names", "versioned_tech", "legacy_tech"} <= set(work.columns):
+            terms = [t.strip().lower() for t in tech_q.split(",") if t.strip()]
+
+            def _tech_hit(r: Any) -> bool:
+                blob = " ".join(_lst(r["tech_names"]) + _lst(r["versioned_tech"])
+                                + _lst(r["legacy_tech"]) + _lst(r.get("exposed_services"))
+                                + _lst(r.get("exposed_panels"))).lower()
+                return any(term in blob for term in terms)
+
+            work = work.loc[work.apply(_tech_hit, axis=1)]
+    with r2[1]:
+        if "hosting_providers" in book.columns:
+            host_opts = sorted({h for hs in book["hosting_providers"] for h in _lst(hs)})
+            hosts_sel = st.multiselect(
+                "Hosting Provider", host_opts,
+                help="Where the company is hosted (from the network owner — org/ISP).")
+            if hosts_sel:
+                work = work.loc[work["hosting_providers"].apply(
+                    lambda hs: any(h in _lst(hs) for h in hosts_sel))]
 
 # Security SIGNALS as clickable chips (count over the whole book so labels stay stable
 # across reruns). Click to filter — the chip landscape *is* the filter.
-sig_opts = {f"{label}  ·  {int(cast('pd.Series', companies[col]).sum())}": col
+sig_opts = {f"{label}  ·  {int(cast('pd.Series', book[col]).sum())}": col
             for label, col in SIGNALS.items()
-            if col in companies.columns and int(cast("pd.Series", companies[col]).sum()) > 0}
-picked_sig = st.pills("Security signals — click to filter", list(sig_opts),
-                      selection_mode="multi")
+            if col in book.columns and int(cast("pd.Series", book[col]).sum()) > 0}
+picked_sig = st.pills("Security Signals", list(sig_opts), selection_mode="multi")
 for p in picked_sig:
     work = work.loc[work[sig_opts[p]] == 1]
 
 # TECHNOGRAPHIC categories as clickable chips (deterministic tech profile).
-if "tech_categories" in companies.columns:
-    tcounts = Counter(c for cats in companies["tech_categories"] for c in _lst(cats))
+if "tech_categories" in book.columns:
+    tcounts = Counter(c for cats in book["tech_categories"] for c in _lst(cats))
     tech_opts = {f"{cat}  ·  {n}": cat for cat, n in tcounts.most_common()}
-    picked_tech = st.pills("Technology — click to filter", list(tech_opts),
+    picked_tech = st.pills("Technology", list(tech_opts),
                            selection_mode="multi", help=TECH_HELP)
     for p in picked_tech:
         cat = tech_opts[p]
         work = work.loc[work["tech_categories"].apply(lambda cats: cat in _lst(cats))]
 
-if st.toggle("Well-enriched only (has extracted company profile)", value=False):
-    work = work.loc[work["org_name"].notna()]
+# Internet-exposed services as clickable chips — the sharpest cyber trigger
+# ("who has RDP / SMB / a database open to the internet?"). Parsed deterministically
+# from the exposed port inventory.
+if "exposed_services" in book.columns:
+    ecounts = Counter(s for svcs in book["exposed_services"] for s in _lst(svcs))
+    exp_opts = {f"{svc}  ·  {n}": svc for svc, n in ecounts.most_common()}
+    if exp_opts:
+        picked_exp = st.pills("Internet-Exposed Services", list(exp_opts),
+                              selection_mode="multi",
+                              help="Risky services reachable from the internet (RDP, SMB, "
+                                   "Telnet, exposed databases, orchestration APIs…), from "
+                                   "the port inventory. Deterministic, no LLM.")
+        for p in picked_exp:
+            svc = exp_opts[p]
+            work = work.loc[work["exposed_services"].apply(lambda ss: svc in _lst(ss))]
+
+# Exposed admin / management panels as clickable chips — an internet-facing control
+# panel (cPanel/WHM, a firewall login, a DevOps console) is a high-value cyber target,
+# named deterministically from the HTTP page title.
+if "exposed_panels" in book.columns:
+    pcounts = Counter(p for ps in book["exposed_panels"] for p in _lst(ps))
+    panel_opts = {f"{pn}  ·  {n}": pn for pn, n in pcounts.most_common()}
+    if panel_opts:
+        picked_panel = st.pills("Exposed Admin Panels", list(panel_opts),
+                                selection_mode="multi",
+                                help="Internet-facing management/control panels (cPanel/WHM, "
+                                     "Plesk, firewall & router logins, DevOps consoles…), "
+                                     "named from the HTTP page title. Deterministic, no LLM.")
+        for p in picked_panel:
+            pn = panel_opts[p]
+            work = work.loc[work["exposed_panels"].apply(lambda ps: pn in _lst(ps))]
 
 view = cast("pd.DataFrame", work)
 
@@ -310,18 +296,202 @@ def _surface_bar(df: Any, cat_col: str, height: int = 0) -> Any:
     return (bar + txt).properties(height=height or (36 * len(df) + 12))
 
 
-def _surface_donut(df: Any, cat_col: str) -> Any:
-    """Donut with % labels on the slices + colour legend below (clean for a few slices)."""
-    total = int(df["count"].sum()) or 1
-    df = df.assign(pct=(100 * df["count"] / total).round().astype(int).astype(str) + "%")
-    base = alt.Chart(df).encode(
-        theta=alt.Theta("count:Q", stack=True),
-        color=alt.Color(f"{cat_col}:N", title=None, legend=alt.Legend(orient="bottom")),
-        tooltip=[alt.Tooltip(f"{cat_col}:N", title=cat_col.title()),
-                 alt.Tooltip("count:Q", title="Services")])
-    arc = base.mark_arc(innerRadius=48, stroke="#0e1117", strokeWidth=1)
-    txt = base.mark_text(radius=92, size=13, color="#e8e8e8").encode(text="pct:N")
-    return (arc + txt).properties(height=240)
+# --- Deterministic sales narrative (the "Sales Prospect Intelligence" brief) ----------
+# Transforms the cached security telemetry into a sales-ready brief with NO LLM: an
+# executive summary, business-relevant themes, "why now" triggers, a grouped attack-surface
+# view, ranked risk signals, and outreach talking points. Rules only — every line traces to
+# a field on the row; nothing is invented (missing evidence → the section is simply omitted).
+_DB_TOKENS = ("MySQL", "PostgreSQL", "MongoDB", "Redis", "Elasticsearch", "MSSQL", "InfluxDB")
+_SURFACE_CATEGORIES: list[tuple[str, tuple[str, ...]]] = [
+    ("Databases", _DB_TOKENS),
+    ("Remote Access", ("RDP", "Telnet", "VNC")),
+    ("File Sharing", ("SMB", "NetBIOS", "FTP")),
+    ("Monitoring", ("Prometheus", "Grafana", "Kibana")),
+    ("Container Platforms", ("Docker API", "Kubernetes API")),
+    ("Identity Services", ("LDAP",)),
+]
+# theme -> (observation, business risk, conversation starter) for the talking points
+_TALK: dict[str, tuple[str, str, str]] = {
+    "Active Compromise": (
+        "Indicators consistent with active compromise (malware / C2) were observed.",
+        "Signs of an in-progress incident demand immediate investigation and response.",
+        "\"Have you validated whether any of your internet-facing hosts show signs of compromise?\""),
+    "Active Exploitation Risk": (
+        "Internet-facing systems carry vulnerabilities that are actively exploited in the wild.",
+        "Actively-exploited flaws are a leading breach vector; unpatched, they invite ransomware.",
+        "\"How are you prioritising remediation for vulnerabilities already being exploited in the wild?\""),
+    "Operational Technology Exposure": (
+        "Industrial control / OT systems appear reachable from the internet.",
+        "OT exposure carries safety and availability risk, plus heavy compliance scrutiny.",
+        "\"How are you segmenting and monitoring your internet-facing OT assets?\""),
+    "Internet-Exposed Data": (
+        "One or more databases appear reachable from the public internet.",
+        "Exposed data stores are a direct path to data theft and ransomware.",
+        "\"What controls do you have around internet-reachable data stores today?\""),
+    "Administrative Interface Exposure": (
+        "Multiple administrative / control panels appear reachable from the internet.",
+        "Admin portals are prime targets for credential-stuffing and unauthorised access.",
+        "\"How are you managing exposure and monitoring of externally accessible admin portals?\""),
+    "Remote Access Exposure": (
+        "Internet-facing remote-access services were detected.",
+        "Exposed RDP / VPN is a leading initial-access vector for intrusions.",
+        "\"How are you securing and monitoring remote-access entry points?\""),
+    "Legacy Infrastructure Risk": (
+        "End-of-life software versions are running on public-facing systems.",
+        "Unsupported software no longer gets security patches — known exploits stay open.",
+        "\"What's your plan for the end-of-life systems still exposed to the internet?\""),
+    "Cloud Security Risk": (
+        "Public cloud-hosted assets are exposing services to the internet.",
+        "Misconfigured cloud exposure is a common breach root cause.",
+        "\"How are you continuously validating your cloud attack surface?\""),
+}
+
+
+def render_sales_narrative(row: Any) -> None:
+    """Render the deterministic sales brief inside the detail card. Rules only, no LLM."""
+    org, industry = _txt(row.get("org_name")), _txt(row.get("industry"))
+    name = org or str(row["domain"])
+    score, kev, cve = int(row.get("score") or 0), int(row.get("kev_count") or 0), int(row.get("cve_count") or 0)
+    epss = float(row["max_epss"]) if pd.notna(row.get("max_epss")) else 0.0
+    breach, db, ics = int(row.get("has_breach") or 0), int(row.get("has_db") or 0), int(row.get("has_ics") or 0)
+    legacy_flag = int(row.get("has_legacy") or 0) or int(row.get("has_eol") or 0)
+    selfsigned, rdp, telnet = int(row.get("has_selfsigned") or 0), int(row.get("has_rdp") or 0), int(row.get("has_telnet") or 0)
+    smb, vpn, cloud = int(row.get("has_smb") or 0), int(row.get("has_vpn") or 0), int(row.get("has_cloud") or 0)
+    panels, exposed = _lst(row.get("exposed_panels")), _lst(row.get("exposed_services"))
+    legacy_tech, hosting = _lst(row.get("legacy_tech")), _lst(row.get("hosting_providers"))
+    db_svcs = [s for s in exposed if s in _DB_TOKENS]
+    remote_svcs = [s for s in exposed if s in ("RDP", "Telnet", "VNC")]
+
+    # risk level + priority (deterministic; strongest signals escalate)
+    if breach or (kev and (db or ics or panels)):
+        level = "Critical"
+    elif kev or ics or (db and legacy_flag) or score >= 110:
+        level = "High"
+    elif score >= 55 or db or legacy_flag or cve:
+        level = "Medium"
+    else:
+        level = "Low"
+    priority = {"Critical": "P1 — Immediate", "High": "P2 — High priority",
+                "Medium": "P3 — Standard", "Low": "P4 — Nurture"}[level]
+    color = {"Critical": "#e5484d", "High": "#f2994a", "Medium": "#4c8bf5", "Low": "#8a94a6"}[level]
+
+    # business-relevant themes (name, why it matters, supporting evidence)
+    themes: list[tuple[str, str, str]] = []
+    if breach:
+        themes.append(("Active Compromise", "Malware / C2 indicators suggest an in-progress incident.",
+                       "Compromise indicators on exposed hosts"))
+    if kev:
+        themes.append(("Active Exploitation Risk",
+                       "Vulnerabilities on CISA's Known-Exploited list are being used by attackers now.",
+                       f"{kev} actively-exploited (KEV) CVE(s)" + (f"; peak EPSS {epss:.0%}" if epss else "")))
+    if ics:
+        themes.append(("Operational Technology Exposure",
+                       "Internet-facing industrial control systems put safety-critical processes at risk.",
+                       "ICS/OT protocols reachable from the internet"))
+    if db or db_svcs:
+        themes.append(("Internet-Exposed Data", "Databases reachable from the internet risk data theft and ransomware.",
+                       "Exposed: " + ", ".join(db_svcs) if db_svcs else "A database service is internet-facing"))
+    if panels:
+        themes.append(("Administrative Interface Exposure", "Public admin / control panels are prime targets for credential attacks.",
+                       "Panels: " + ", ".join(panels[:4])))
+    if rdp or vpn or telnet or remote_svcs:
+        ev = list(dict.fromkeys(remote_svcs + (["VPN"] if vpn else [])))
+        themes.append(("Remote Access Exposure", "Internet-facing remote access is a leading initial-access vector.",
+                       "Exposed: " + ", ".join(ev) if ev else "Remote access is internet-facing"))
+    if legacy_flag:
+        themes.append(("Legacy Infrastructure Risk", "End-of-life software no longer receives security patches.",
+                       "Legacy: " + ", ".join(legacy_tech[:3]) if legacy_tech else "End-of-life software detected"))
+    if cloud and exposed:
+        themes.append(("Cloud Security Risk", "Public cloud assets exposing services is a common breach root cause.",
+                       "Hosted on " + ", ".join(hosting[:3]) if hosting else "Cloud-hosted exposure"))
+    themes = themes[:6]
+
+    # Executive summary
+    st.markdown(
+        f"<span style='background:{color};color:#fff;padding:2px 10px;border-radius:10px;"
+        f"font-weight:700;font-size:13px'>Risk: {level}</span>"
+        f"&nbsp;&nbsp;&nbsp;**Priority Score:** {min(score, 100)}/100"
+        f"&nbsp;&nbsp;&nbsp;**Outreach:** {priority}", unsafe_allow_html=True)
+    summ = f"**{name}**" + (f" ({industry})" if industry else "")
+    summ += f" presents **{level.lower()}** internet-exposure risk"
+    if themes:
+        summ += " driven by " + " and ".join(t[0].lower() for t in themes[:2])
+    summ += f". Lead score {score}."
+    if kev:
+        summ += f" {kev} exposure(s) are actively exploited in the wild."
+    st.markdown(summ)
+
+    # Why They're a Fit — themes
+    if themes:
+        st.markdown("#### Why They're a Fit")
+        for tname, why, ev in themes:
+            st.markdown(f"- **{tname}** — {why}  \n  _Evidence: {ev}_")
+
+    # Why Now — timing triggers
+    triggers = []
+    if breach:
+        triggers.append("Indicators of active compromise (malware / C2) — warrants immediate investigation.")
+    if kev:
+        triggers.append(f"{kev} actively-exploited (CISA KEV) vulnerabilit{'y' if kev == 1 else 'ies'} — attackers are using these now.")
+    if legacy_flag:
+        triggers.append("End-of-life software still in production — no longer receiving security updates.")
+    if ics:
+        triggers.append("Industrial control systems exposed to the internet.")
+    if panels:
+        triggers.append("Administrative interfaces publicly accessible.")
+    if db or db_svcs:
+        triggers.append("Database services reachable from the internet.")
+    if triggers:
+        st.markdown("#### Why Now")
+        for t in triggers[:5]:
+            st.markdown(f"- {t}")
+
+    # Attack Surface Overview — grouped, not itemised
+    surface = [(cat, [s for s in exposed if s in toks]) for cat, toks in _SURFACE_CATEGORIES]
+    surface = [(c, hits) for c, hits in surface if hits]
+    if panels:
+        surface.append(("Administrative Interfaces", panels))
+    if surface:
+        st.markdown("#### Attack Surface Overview")
+        for cat, items in surface:
+            st.markdown(f"- **{cat}** — {', '.join(items[:8])}")
+
+    # Top Risk Signals — top 5 by business impact
+    cand: list[tuple[int, str, str, str, str]] = []
+    if breach:
+        cand.append((100, "Active compromise", "Critical", "Malware / C2 indicators", "Possible active breach — data loss, ransomware, downtime"))
+    if ics:
+        cand.append((95, "OT / ICS exposed", "Critical", "Industrial control protocols internet-facing", "Safety & availability risk; regulatory exposure"))
+    if kev:
+        cand.append((90, f"{kev} actively-exploited (KEV) CVE(s)", "Critical", (f"CISA KEV; peak EPSS {epss:.0%}" if epss else "CISA KEV catalog"), "Exploited in the wild — high breach likelihood"))
+    if db or db_svcs:
+        cand.append((80, "Internet-exposed database", "High", "Exposed: " + (", ".join(db_svcs) or "database service"), "Direct path to data theft / ransomware"))
+    if panels:
+        cand.append((75, "Exposed admin panel", "High", "Panels: " + ", ".join(panels[:3]), "Credential attacks / unauthorised admin access"))
+    if rdp:
+        cand.append((70, "RDP exposed", "High", "Remote Desktop on the public internet", "Top ransomware initial-access vector"))
+    if telnet:
+        cand.append((65, "Telnet exposed", "High", "Unencrypted admin protocol internet-facing", "Cleartext credentials — trivial to intercept"))
+    if legacy_flag:
+        cand.append((60, "End-of-life software", "High" if legacy_tech else "Medium", "Legacy: " + (", ".join(legacy_tech[:3]) or "EOL-flagged"), "Unpatched, known-vulnerable stack"))
+    if cve:
+        cand.append((50, f"{cve} known CVE(s)", "Medium", f"{cve} distinct public vulnerabilities", "Expands the exploitable attack surface"))
+    if smb:
+        cand.append((45, "SMB / file-sharing exposed", "Medium", "SMB / NetBIOS internet-facing", "Lateral movement / ransomware spread"))
+    if selfsigned:
+        cand.append((30, "Weak / self-signed certificate", "Low", "Self-signed TLS certificate", "MITM risk; weak security hygiene"))
+    cand.sort(key=lambda c: -c[0])
+    if cand:
+        st.markdown("#### Top Risk Signals")
+        for _, risk, sev, ev, impact in cand[:5]:
+            st.markdown(f"- **{risk}**  ·  _{sev}_  \n  Evidence: {ev}  \n  Business impact: {impact}")
+
+    # Sales Talking Points — 3 outreach angles from the top themes
+    talk = [_TALK[t[0]] for t in themes if t[0] in _TALK][:3]
+    if talk:
+        st.markdown("#### Sales Talking Points")
+        for obs, risk, starter in talk:
+            st.markdown(f"- **Observation:** {obs}  \n  **Business risk:** {risk}  \n  **Conversation starter:** {starter}")
 
 
 def render_detail(domain: str) -> None:
@@ -341,19 +511,14 @@ def render_detail(domain: str) -> None:
             st.session_state["grid_nonce"] = st.session_state.get("grid_nonce", 0) + 1  # remount grid → clear selection
             st.rerun()
 
-        # tech profile (drives the surface tiles + fit angles). row.get() tolerates a
-        # stale serving DB without the v3 tech columns.
-        tech_cats = _lst(row.get("tech_categories"))
+        # tech profile (drives the surface bars + the sales brief). row.get() tolerates a
+        # stale serving DB without the tech columns.
         tech_detected = _lst(row.get("tech_names")) or tech  # fall back to LLM tech_stack
-        angles = fit_angles(tech_cats, tech_detected)
         svc = load_services(domain)
         n_svc = len(svc)
-        prod = cast("Any", svc["product"]).dropna().value_counts().head(6).reset_index()
+        prod = cast("Any", svc["product"]).dropna().value_counts().reset_index()
         prod.columns = ["product", "count"]
         prod_fill = int(round(100 * cast("Any", svc["product"]).notna().mean())) if n_svc else 0
-        tr = svc["transport"].value_counts().reset_index()
-        tr.columns = ["transport", "count"]
-        tr_fill = int(round(100 * cast("Any", svc["transport"]).notna().mean())) if n_svc else 0
         max_epss = float(row["max_epss"]) if pd.notna(row["max_epss"]) else 0.0
 
         # 5 + 5 uniform tiles, ordered most-important -> least: rank + threat signals
@@ -388,53 +553,50 @@ def render_detail(domain: str) -> None:
                 st.altair_chart((sb_bar + sb_txt).properties(height=len(bd) * 30 + 10),
                                 use_container_width=True)
 
-        # exposed surface as donuts: Products + Technologies side by side, Transport below.
+        # exposed surface as bars: Products + Technologies side by side. ALL entries are
+        # shown (uniform bar width) inside equal fixed-height scrollable containers — so a
+        # 50-tech company scrolls rather than truncating, and both panels stay the same size.
         # (Technologies from cpe fingerprints — fuller than product: jquery/php/etc.)
-        top_tech = (Counter(t for names in svc["technologies"] for t in _lst(names)).most_common(7)
+        top_tech = (Counter(t for names in svc["technologies"] for t in _lst(names)).most_common()
                     if "technologies" in svc.columns else [])
         tech_fill = (int(round(100 * svc["technologies"].apply(lambda t: len(_lst(t)) > 0).mean()))
                      if n_svc and "technologies" in svc.columns else 0)
-        # Products + Technologies as bars (side by side, SAME height); Transport as a
-        # donut below, kept to the same (half) width as Products.
-        bar_h = 36 * max(len(prod), len(top_tech), 1) + 12
+        PANEL_H = 300  # equal display height for both; content taller than this scrolls
         g1, g2 = st.columns(2)
-        with g1.container(border=True):
+        with g1:
             st.markdown(f"**Products**  ({prod_fill}% of services)")
-            if len(prod):
-                st.altair_chart(_surface_bar(prod, "product", bar_h), use_container_width=True)
-            else:
-                st.caption("No product fingerprints on this surface.")
-        with g2.container(border=True):
+            with st.container(height=PANEL_H, border=True):
+                if len(prod):
+                    st.altair_chart(_surface_bar(prod, "product", 34 * len(prod) + 12),
+                                    use_container_width=True)
+                else:
+                    st.caption("No product fingerprints on this surface.")
+        with g2:
             st.markdown(f"**Technologies**  ({tech_fill}% of services)")
-            if top_tech:
-                tdf = cast("Any", pd.DataFrame(top_tech, columns=["technology", "count"]))
-                st.altair_chart(_surface_bar(tdf, "technology", bar_h), use_container_width=True)
-            else:
-                st.caption("No technology fingerprints on this surface.")
-        t1, _t2 = st.columns(2)
-        with t1.container(border=True):
-            st.markdown(f"**Transport**  ({tr_fill}% of services)")
-            if len(tr):
-                st.altair_chart(_surface_donut(tr, "transport"), use_container_width=True)
+            with st.container(height=PANEL_H, border=True):
+                if top_tech:
+                    tdf = cast("Any", pd.DataFrame(top_tech, columns=["technology", "count"]))
+                    st.altair_chart(_surface_bar(tdf, "technology", 34 * len(tdf) + 12),
+                                    use_container_width=True)
+                else:
+                    st.caption("No technology fingerprints on this surface.")
 
-        with st.expander("Company Profile & Signals", expanded=True):
-            bits = [f"**{org_name}**" if org_name else None,
-                    f"industry: {industry}" if industry else None]
-            head = "  ·  ".join(b for b in bits if b)
-            if head:
-                st.markdown(head)
-
-            if angles:
-                st.markdown("**Why They're a Fit**")
-                for label, angle in angles:
-                    st.markdown(f"- **{label}** — {angle}")
-
-            st.markdown("**Targeting Signals**")
-            for reason in row["reasons"]:
-                st.markdown(f"- {reason}")
-
+        # deterministic sales brief (executive summary, themes, why-now, attack surface,
+        # top risks, talking points) — the transformed "Company Profile & Signals".
+        with st.expander("Sales Prospect Intelligence", expanded=True):
+            render_sales_narrative(row)
+            # concise technographic context (footprint, not noise)
+            net_owner = _txt(row.get("hosting_network"))
+            city_count = int(row.get("city_count") or 0)
+            ctx = []
+            if net_owner:
+                ctx.append(f"network owner: {net_owner}")
+            if city_count > 1:
+                ctx.append(f"hosts across {city_count} cities")
             if tech_detected:
-                st.caption("Technology footprint: " + ", ".join(tech_detected[:25]))
+                ctx.append("stack: " + ", ".join(tech_detected[:12]))
+            if ctx:
+                st.caption("Footprint — " + "  ·  ".join(ctx))
             if emails:
                 st.caption("Contact emails (regex): " + ", ".join(emails))
 
@@ -449,15 +611,20 @@ def render_detail(domain: str) -> None:
                 with st.container(border=True, key="pitch_box"):
                     st.markdown(pitch_md)
 
-        # raw per-service table on demand (the summary donuts are shown up top).
-        # Each row maps a service (ip:port) -> its technologies, product and CVEs.
-        if st.button("View Exposed Surface", key=f"svc_{domain}"):
-            st.session_state[f"show_svc_{domain}"] = True
-        if st.session_state.get(f"show_svc_{domain}"):
-            disp = svc.copy()
-            if "technologies" in disp.columns:
-                disp["technologies"] = disp["technologies"].apply(lambda t: ", ".join(_lst(t)))
-            st.dataframe(disp, hide_index=True, width="stretch", height=260)
+        # raw per-service table, always shown. Each row maps a service (ip:port) -> its
+        # technologies, product, version, CVEs, tags, geo and scan date.
+        st.markdown(f"**Exposed Surface**  ({n_svc} services)")
+        disp = svc.copy()
+        for col in ("technologies", "tags", "vulns"):
+            if col in disp.columns:
+                disp[col] = disp[col].apply(lambda t: ", ".join(_lst(t)))
+        if "scanned_at" in disp.columns:
+            disp["scanned_at"] = pd.to_datetime(disp["scanned_at"]).dt.strftime("%Y-%m-%d")
+        disp = disp.rename(columns={
+            "ip_str": "IP", "port": "Port", "transport": "Transport", "product": "Product",
+            "version": "Version", "technologies": "Technologies", "tags": "Tags",
+            "vulns": "CVEs", "country_code": "Country", "scanned_at": "Scanned"})
+        st.dataframe(disp, hide_index=True, width="stretch", height=320)
 
         st.info("**Contacts** — join this company (by domain) to Firmable's people "
                 "data to surface the right decision-maker (CISO / IT head).")
@@ -490,8 +657,18 @@ if "tech_categories" in view.columns:
         lambda c: "  ·  ".join(_lst(c)) if _lst(c) else "—")
 else:
     table["technologies"] = "—"
+# Hosting / infrastructure (technographic infra signal): show the normalised cloud/CDN
+# when known, else the dominant network owner (ISP/AS) — so it's rarely blank.
+if "hosting_providers" in view.columns:
+    _prov = view["hosting_providers"].reset_index(drop=True)
+    _net = (view["hosting_network"].reset_index(drop=True)
+            if "hosting_network" in view.columns else pd.Series(["—"] * len(view)))
+    table["hosting"] = [("  ·  ".join(_lst(p)) if _lst(p) else (_txt(n) or "—"))
+                        for p, n in zip(_prov, _net)]
+else:
+    table["hosting"] = "—"
 table = cast("pd.DataFrame", table[["company", "domain", "segment", "country_name", "score",
-             "services", "hosts", "kev_cves", "signals", "technologies", "org_name"]])
+             "services", "hosts", "kev_cves", "signals", "technologies", "hosting", "org_name"]])
 
 gb = GridOptionsBuilder.from_dataframe(table)
 gb.configure_selection("single")  # click a row to select it (no checkbox)
@@ -505,6 +682,7 @@ gb.configure_column("hosts", headerName="Exposed IPs")
 gb.configure_column("kev_cves", headerName="KEV / CVEs")
 gb.configure_column("signals", headerName="Security Signals", flex=2, wrapText=True, autoHeight=True)
 gb.configure_column("technologies", headerName="Technologies", flex=1, wrapText=True, autoHeight=True)
+gb.configure_column("hosting", headerName="Hosting", flex=1, wrapText=True, autoHeight=True)
 gb.configure_column("org_name", hide=True)
 gb.configure_grid_options(headerHeight=44)
 

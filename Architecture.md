@@ -173,6 +173,43 @@ when present. Deploy target: Streamlit Community Cloud (`app/app.py`, Python 3.1
   technographic play, since most B2B software buys are replacements), and a net-new
   **exposed-AI/ML** trigger. SQL-backed in
   [`data/analysis/tech_signals.sql`](data/analysis/tech_signals.sql).
+- **Deeper extraction, still deterministic (v4).** The dataset carries far more than broad
+  categories, so `silver_company_tech` also mines: **versioned technology** (`product@version`
+  — Shodan reports a concrete version on ~5% of services and in ~21% of cpe23 rows),
+  **legacy / EOL detection** (version-gated — Python 2.x / PHP ≤5 / OpenSSH <7 / Apache 2.2 /
+  MySQL 5.x — plus Shodan's own `eol-product`/`eol-os` tags), and **hosting / infrastructure**
+  (`hosting_providers` = normalized cloud/CDN from the network owner; `hosting_network` = the
+  dominant ISP/AS operator, present for ~99% of prospects so "where are they hosted" is rarely
+  blank). Surfaced as a **technology/version search**, a **hosting filter + column**, and an
+  **IPs-per-domain** footprint filter. Version-specific legacy is the highest-value trigger — an
+  unsupported, known-vulnerable stack is a direct reason to call. SQL-backed in
+  [`data/analysis/extraction_v4.sql`](data/analysis/extraction_v4.sql).
+- **Exposure surface from the port inventory (v4).** The clearest cyber-sales trigger isn't
+  a category, it's a *specific risky service open to the internet*. `silver_company_tech`
+  names them from well-known ports (`exposed_services` + `has_rdp`/`has_telnet`/`has_ftp`/
+  `has_smb`) — RDP, SMB, Telnet, FTP, exposed databases (MySQL/Postgres/Mongo/Redis/Elastic),
+  and orchestration APIs (Kubernetes/Docker). 2,798 prospects expose ≥1; surfaced as
+  click-to-filter chips, targeting reasons, and a detail line. `ssl_issuers` adds a CA-hygiene
+  signal. An honest **null result** is recorded too: a deterministic org name from the cert
+  subject (`O=`) was attempted but prospect certs are CN-only (0 of 97k carry an org field),
+  so it was dropped rather than shipped empty — mined, not viable, documented.
+- **HTTP-title mining + a full column audit (v4).** The page title names internet-facing
+  **management/control panels** (`exposed_panels` + `has_admin_panel`) — cPanel/WHM (524),
+  Plesk, Synology, firewall/router logins (MikroTik/pfSense/SonicWall/Fortinet), DevOps
+  consoles (Grafana/Portainer/MinIO) — 1,366 prospects expose one, a high-value target.
+  `city_count` (distinct host cities) is a rough size proxy. The dead `asn` column was
+  **removed** (org/isp already carry the network owner). A deliberate discipline here: a
+  **24-column bronze audit** (mined / explored / n/a) is recorded in
+  [`data/analysis/extraction_v4.sql`](data/analysis/extraction_v4.sql) so extraction coverage
+  is provable, not assumed.
+- **Infrastructure is a segment, not noise (v4).** The entity classifier still labels
+  hosting/ISP as `infra`, but gold now keeps `entity_class in (business, infra)` and tags
+  each row. The app shows the **full universe by default (~6,654)** with a **Business-Only
+  Prospects** toggle that collapses to the "see past the hosting layer" view (~3,973).
+  Hosting providers, ISPs and datacenters are themselves high-surface cybersecurity buyers —
+  a distinct ICP, always available, and one toggle away from the clean business-only view. The
+  `flagged` guardrail (low confidence / footprint contradiction) still excludes — a
+  label-quality gate, orthogonal to the business-vs-infra choice.
 - **Single-writer warehouse.** Steps run in dependency order; the app connects
   read-only. (Prod: a real warehouse removes this constraint.)
 - **Transparency over black-box.** The lead score is an explainable additive formula,

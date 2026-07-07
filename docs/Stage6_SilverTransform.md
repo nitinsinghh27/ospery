@@ -60,6 +60,28 @@ Dagster, this source maps to the Python bronze asset (Stage 10).
   technographic ICP targeting, competitive-displacement plays, and the **exposed
   AI/ML** trigger. Numbers backed by
   [`data/analysis/tech_signals.sql`](../data/analysis/tech_signals.sql).
+  **v4 — deeper extraction (still no LLM):** the same model also emits
+  **`versioned_tech`** (concrete `product version`, e.g. "OpenSSH 7.4" — Shodan reports a
+  version on ~5% of services and in ~21% of cpe23 rows), **`legacy_tech`** + **`has_legacy`**
+  (version-gated end-of-life stacks — Python 2.x / PHP ≤5 / OpenSSH <7 / Apache 2.2 /
+  MySQL 5.x — plus Shodan's own `eol-product`/`eol-os` tags), **`hosting_providers`**
+  (normalized cloud/CDN from the network owner: AWS/GCP/Azure/Cloudflare/Hetzner…), and
+  **`hosting_network`** (the dominant ISP/AS operator via `mode(isp)` — present for ~99% of
+  prospects, so "where are they hosted" is rarely blank). SQL-backed in
+  [`data/analysis/extraction_v4.sql`](../data/analysis/extraction_v4.sql).
+  **Exposure surface:** the port inventory names risky internet-facing services
+  (`exposed_services` + `has_rdp`/`has_telnet`/`has_ftp`/`has_smb`) — the sharpest cyber
+  trigger ("your RDP/SMB/database is reachable"); 2,798 prospects expose ≥1. `ssl_issuers`
+  carries the certificate authorities. *(Honest null result: a deterministic org name from
+  the cert subject `O=` was attempted but prospect certs are CN-only — 0/97k carry an O=
+  field — so it was dropped rather than shipped empty.)*
+  **HTTP-title mining:** `exposed_panels` + `has_admin_panel` name internet-facing
+  **management/control panels** from the page title (cPanel/WHM 524, Synology 289, Plesk 260,
+  3CX 199, MikroTik/pfSense/SonicWall/Fortinet firewall logins, Grafana/Portainer/MinIO
+  consoles…) — 1,366 prospects expose one, a high-value cyber target. `city_count` = distinct
+  cities the hosts sit in (avg 4.27, max 289), a rough size/distribution proxy. The `asn`
+  column was **removed** as redundant (org/isp already carry the network owner) — a deliberate
+  cleanup, not left as a dead column.
 
 ---
 
