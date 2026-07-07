@@ -115,74 +115,88 @@ st.markdown(  # center the KPI metrics
     unsafe_allow_html=True,
 )
 
-# --- Filters: region distribution (left) + dropdowns side by side (right) ----------
-st.markdown("##### Filter Prospects")
-# Scope toggle. Default shows the FULL universe (businesses + infrastructure / hosting
-# providers — the latter are themselves high-surface cybersecurity buyers). Flip
-# "Business-Only" for the "see past the hosting layer" view. The whole landscape (counts,
-# chips) tracks the scope via `book`.
-business_only = st.toggle(
-    "Business-Only Prospects", value=False,
-    help="On = only LLM-verified businesses (hosting/ISP demoted — the 'see past the "
-         "hosting layer' view). Off (default) = the full universe including "
-         "infrastructure & hosting providers.")
+# --- Filters: a horizontal bar of collapsible popovers on the main page (NOT a left
+# sidebar, which would resize the results table). Each group opens on click and overlays,
+# so the table keeps its full, stable width. A new extraction signal is just another
+# popover — the bar scales without pushing anything down. Landscape counts track `book`.
+st.markdown("##### Filters")
+# Row 1 = inputs (toggle, company search, hosting dropdown — all free-text/select controls).
+# Row 2 = facet popovers (grouped, multi-control filters). Two intentionally-distinct zones,
+# each internally consistent — cleaner than forcing a lone dropdown to mimic a button.
+_ftop = st.columns([2.0, 5.9, 2.1])  # toggle | spacer | search (shorter, right-aligned)
+with _ftop[0]:
+    business_only = st.toggle(
+        "Business-Only Prospects", value=False,
+        help="On = only LLM-verified businesses (hosting/ISP demoted — the 'see past the "
+             "hosting layer' view). Off (default) = the full universe including "
+             "infrastructure & hosting providers.")
 book = (companies.loc[companies["entity_class"] == "business"]
         if business_only and "entity_class" in companies.columns else companies)
 work = book
-n_countries = int(book["country_name"].nunique())
-
-# Left = clickable region distribution (sales territory); right = two tight rows of
-# dropdowns (Segment / Country / Company, then Technology / Hosting). The chart height is
-# tuned to span both rows so the two sides line up with no gap between them.
-left, right = st.columns([1.9, 3.8])
-with left:
-    st.markdown(f"**Countries ({n_countries})**")
-    if "region" in work.columns:
-        rc = book["region"].value_counts().reset_index()
-        rc.columns = ["region", "count"]
-        rtot = int(rc["count"].sum()) or 1
-        rc["lab"] = (rc["count"].astype(str) + " ("
-                     + (100 * rc["count"] / rtot).round().astype(int).astype(str) + "%)")
-        pick = alt.selection_point(fields=["region"], name="region_pick", toggle="true")
-        rbase = alt.Chart(rc).encode(
-            y=alt.Y("region:N", title=None, sort="-x",
-                    axis=alt.Axis(labelFontSize=12, labelOverlap=False)),
-            x=alt.X("count:Q", title=None, axis=None,
-                    scale=alt.Scale(domainMax=int(rc["count"].max()) * 1.45)))
-        bars = rbase.mark_bar(cornerRadiusEnd=4, height=26).encode(
-            color=alt.condition(pick, alt.value("#4c8bf5"), alt.value("#39404d")),
-            tooltip=[alt.Tooltip("region:N", title="Region"),
-                     alt.Tooltip("count:Q", title="Prospects")]).add_params(pick)
-        rtxt = rbase.mark_text(align="left", dx=6, size=11, color="#cfcfcf").encode(text="lab:N")
-        ev = cast("Any", st.altair_chart((bars + rtxt).properties(height=150),
-                                         on_select="rerun", use_container_width=True, key="region_chart"))
-        picked = [d["region"] for d in (ev.selection.get("region_pick", []) if ev else [])]
-        if picked:
-            work = work.loc[work["region"].isin(picked)]
-with right:
-    r1 = st.columns([1.2, 1.2, 1.4])
-    with r1[0]:
-        segments = st.multiselect("Segment", sorted(work["segment"].unique()))
-        if segments:
-            work = work.loc[work["segment"].isin(segments)]
-    with r1[1]:
+with _ftop[2]:
+    search = st.text_input("Company search", placeholder="Company name or domain…",
+                           label_visibility="collapsed")
+    if search:
+        hit = (work["domain"].str.contains(search, case=False, na=False)
+               | work["org_name"].fillna("").str.contains(search, case=False))
+        work = work.loc[hit]
+fbar = st.columns(5)
+with fbar[0]:
+    with st.popover("Territory", use_container_width=True):
+        n_countries = int(book["country_name"].nunique())
+        if "region" in work.columns:
+            st.caption(f"Region · {n_countries} countries")
+            rc = book["region"].value_counts().reset_index()
+            rc.columns = ["region", "count"]
+            rtot = int(rc["count"].sum()) or 1
+            rc["lab"] = (rc["count"].astype(str) + " ("
+                         + (100 * rc["count"] / rtot).round().astype(int).astype(str) + "%)")
+            pick = alt.selection_point(fields=["region"], name="region_pick", toggle="true")
+            rbase = alt.Chart(rc).encode(
+                y=alt.Y("region:N", title=None, sort="-x",
+                        axis=alt.Axis(labelFontSize=11, labelOverlap=False)),
+                x=alt.X("count:Q", title=None, axis=None,
+                        scale=alt.Scale(domainMax=int(rc["count"].max()) * 1.6)))
+            bars = rbase.mark_bar(cornerRadiusEnd=3, height=16).encode(
+                color=alt.condition(pick, alt.value("#4c8bf5"), alt.value("#39404d")),
+                tooltip=[alt.Tooltip("region:N", title="Region"),
+                         alt.Tooltip("count:Q", title="Prospects")]).add_params(pick)
+            rtxt = rbase.mark_text(align="left", dx=4, size=10, color="#cfcfcf").encode(text="lab:N")
+            ev = cast("Any", st.altair_chart((bars + rtxt).properties(height=120),
+                                             on_select="rerun", use_container_width=True, key="region_chart"))
+            picked = [d["region"] for d in (ev.selection.get("region_pick", []) if ev else [])]
+            if picked:
+                work = work.loc[work["region"].isin(picked)]
         countries = st.multiselect("Country", sorted(work["country_name"].dropna().unique()))
         if countries:
             work = work.loc[work["country_name"].isin(countries)]
-    with r1[2]:
-        search = st.text_input("Company")
-        if search:
-            hit = (work["domain"].str.contains(search, case=False, na=False)
-                   | work["org_name"].fillna("").str.contains(search, case=False))
-            work = work.loc[hit]
-    r2 = st.columns([1.2, 1.2, 1.4])
-    with r2[0]:
+with fbar[1]:
+    with st.popover("Hosting", use_container_width=True):
+        if "hosting_providers" in book.columns:
+            hcounts = Counter(h for hs in book["hosting_providers"] for h in _lst(hs))
+            host_opts = {f"{h}  ·  {n}": h for h, n in hcounts.most_common()}
+            picked_host = st.pills("Hosting provider", list(host_opts), selection_mode="multi",
+                                   label_visibility="collapsed",
+                                   help="Where the company is hosted (from the network owner — org/ISP).")
+            for p in picked_host:
+                hv = host_opts[p]
+                work = work.loc[work["hosting_providers"].apply(lambda hs: hv in _lst(hs))]
+with fbar[2]:
+    with st.popover("Security", use_container_width=True):
+        sig_opts = {f"{label}  ·  {int(cast('pd.Series', book[col]).sum())}": col
+                    for label, col in SIGNALS.items()
+                    if col in book.columns and int(cast("pd.Series", book[col]).sum()) > 0}
+        picked_sig = st.pills("Security signals", list(sig_opts), selection_mode="multi",
+                              label_visibility="collapsed")
+        for p in picked_sig:
+            work = work.loc[work[sig_opts[p]] == 1]
+with fbar[3]:
+    with st.popover("Technology", use_container_width=True):
         tech_q = st.text_input(
-            "Technology / Version Search",
+            "Technology / version search",
             placeholder="e.g. mongodb, openssh 7, python 2",
             help="Match a specific technology or version across the detected stack (product "
-                 "names, versioned tech, legacy/EOL labels, exposed services & panels). "
-                 "Comma-separate for OR.")
+                 "names, versioned/legacy tech, exposed services & panels). Comma = OR.")
         if tech_q and {"tech_names", "versioned_tech", "legacy_tech"} <= set(work.columns):
             terms = [t.strip().lower() for t in tech_q.split(",") if t.strip()]
 
@@ -193,70 +207,43 @@ with right:
                 return any(term in blob for term in terms)
 
             work = work.loc[work.apply(_tech_hit, axis=1)]
-    with r2[1]:
-        if "hosting_providers" in book.columns:
-            host_opts = sorted({h for hs in book["hosting_providers"] for h in _lst(hs)})
-            hosts_sel = st.multiselect(
-                "Hosting Provider", host_opts,
-                help="Where the company is hosted (from the network owner — org/ISP).")
-            if hosts_sel:
-                work = work.loc[work["hosting_providers"].apply(
-                    lambda hs: any(h in _lst(hs) for h in hosts_sel))]
-
-# Security SIGNALS as clickable chips (count over the whole book so labels stay stable
-# across reruns). Click to filter — the chip landscape *is* the filter.
-sig_opts = {f"{label}  ·  {int(cast('pd.Series', book[col]).sum())}": col
-            for label, col in SIGNALS.items()
-            if col in book.columns and int(cast("pd.Series", book[col]).sum()) > 0}
-picked_sig = st.pills("Security Signals", list(sig_opts), selection_mode="multi")
-for p in picked_sig:
-    work = work.loc[work[sig_opts[p]] == 1]
-
-# TECHNOGRAPHIC categories as clickable chips (deterministic tech profile).
-if "tech_categories" in book.columns:
-    tcounts = Counter(c for cats in book["tech_categories"] for c in _lst(cats))
-    tech_opts = {f"{cat}  ·  {n}": cat for cat, n in tcounts.most_common()}
-    picked_tech = st.pills("Technology", list(tech_opts),
-                           selection_mode="multi", help=TECH_HELP)
-    for p in picked_tech:
-        cat = tech_opts[p]
-        work = work.loc[work["tech_categories"].apply(lambda cats: cat in _lst(cats))]
-
-# Internet-exposed services as clickable chips — the sharpest cyber trigger
-# ("who has RDP / SMB / a database open to the internet?"). Parsed deterministically
-# from the exposed port inventory.
-if "exposed_services" in book.columns:
-    ecounts = Counter(s for svcs in book["exposed_services"] for s in _lst(svcs))
-    exp_opts = {f"{svc}  ·  {n}": svc for svc, n in ecounts.most_common()}
-    if exp_opts:
-        picked_exp = st.pills("Internet-Exposed Services", list(exp_opts),
-                              selection_mode="multi",
-                              help="Risky services reachable from the internet (RDP, SMB, "
-                                   "Telnet, exposed databases, orchestration APIs…), from "
-                                   "the port inventory. Deterministic, no LLM.")
-        for p in picked_exp:
-            svc = exp_opts[p]
-            work = work.loc[work["exposed_services"].apply(lambda ss: svc in _lst(ss))]
-
-# Exposed admin / management panels as clickable chips — an internet-facing control
-# panel (cPanel/WHM, a firewall login, a DevOps console) is a high-value cyber target,
-# named deterministically from the HTTP page title.
-if "exposed_panels" in book.columns:
-    pcounts = Counter(p for ps in book["exposed_panels"] for p in _lst(ps))
-    panel_opts = {f"{pn}  ·  {n}": pn for pn, n in pcounts.most_common()}
-    if panel_opts:
-        picked_panel = st.pills("Exposed Admin Panels", list(panel_opts),
-                                selection_mode="multi",
-                                help="Internet-facing management/control panels (cPanel/WHM, "
-                                     "Plesk, firewall & router logins, DevOps consoles…), "
-                                     "named from the HTTP page title. Deterministic, no LLM.")
-        for p in picked_panel:
-            pn = panel_opts[p]
-            work = work.loc[work["exposed_panels"].apply(lambda ps: pn in _lst(ps))]
+        if "tech_categories" in book.columns:
+            tcounts = Counter(c for cats in book["tech_categories"] for c in _lst(cats))
+            tech_opts = {f"{cat}  ·  {n}": cat for cat, n in tcounts.most_common()}
+            picked_tech = st.pills("Categories", list(tech_opts), selection_mode="multi", help=TECH_HELP)
+            for p in picked_tech:
+                cat = tech_opts[p]
+                work = work.loc[work["tech_categories"].apply(lambda cats: cat in _lst(cats))]
+with fbar[4]:
+    with st.popover("Exposure", use_container_width=True):
+        if "exposed_services" in book.columns:
+            ecounts = Counter(s for svcs in book["exposed_services"] for s in _lst(svcs))
+            exp_opts = {f"{svc}  ·  {n}": svc for svc, n in ecounts.most_common()}
+            if exp_opts:
+                st.caption("Internet-exposed services")
+                picked_exp = st.pills("Internet-exposed services", list(exp_opts),
+                                      selection_mode="multi", label_visibility="collapsed",
+                                      help="Risky services reachable from the internet (RDP, SMB, "
+                                           "Telnet, exposed databases, orchestration APIs…), from "
+                                           "the port inventory.")
+                for p in picked_exp:
+                    svc = exp_opts[p]
+                    work = work.loc[work["exposed_services"].apply(lambda ss: svc in _lst(ss))]
+        if "exposed_panels" in book.columns:
+            pcounts = Counter(p for ps in book["exposed_panels"] for p in _lst(ps))
+            panel_opts = {f"{pn}  ·  {n}": pn for pn, n in pcounts.most_common()}
+            if panel_opts:
+                st.caption("Exposed admin panels")
+                picked_panel = st.pills("Exposed admin panels", list(panel_opts),
+                                        selection_mode="multi", label_visibility="collapsed",
+                                        help="Internet-facing management/control panels (cPanel/WHM, "
+                                             "Plesk, firewall & router logins, DevOps consoles…), "
+                                             "named from the HTTP page title.")
+                for p in picked_panel:
+                    pn = panel_opts[p]
+                    work = work.loc[work["exposed_panels"].apply(lambda ps: pn in _lst(ps))]
 
 view = cast("pd.DataFrame", work)
-
-st.divider()
 
 
 def score_breakdown(row: Any) -> list[tuple[str, int]]:
@@ -702,8 +689,9 @@ GRID_CSS = {
     ".ag-row": {"background-color": "rgba(255,255,255,0.015)"},
     ".ag-row-hover": {"background-color": "rgba(76,139,245,0.28) !important"},
 }
-# rows auto-grow to fit wrapped Signals/Technologies lists, so budget more per row
-grid_height = 44 + 60 * min(max(len(table), 1), 10)
+# rows auto-grow to fit wrapped Signals/Technologies lists, so budget more per row;
+# show more rows before scrolling to fill the vertical space
+grid_height = 44 + 78 * min(max(len(table), 1), 15)
 grid = AgGrid(
     table, gridOptions=gb.build(),
     update_mode=GridUpdateMode.SELECTION_CHANGED,
